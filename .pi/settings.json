@@ -1,0 +1,52 @@
+{
+  "defaultProvider": "github-copilot",
+  "defaultModel": "github-copilot/gpt-5.4",
+  "enabledModels": [
+    "github-copilot/*"
+  ],
+  "subagents": {
+    "disableBuiltins": true,
+    "agentOverrides": {
+      "researcher": { "model": "github-copilot/claude-haiku-5.5", "thinking": "high", "tools": ["read", "write", "bash", "web_search", "fetch_content", "get_search_content"] },
+      "planner": { "model": "github-copilot/gpt-6.1-sol", "thinking": "medium" },
+      "plan-reviewer": { "model": "github-copilot/claude-opus-5.5", "thinking": "medium" },
+      "code-reviewer": { "model": "github-copilot/claude-opus-5.5", "thinking": "medium" },
+      "oracle": { "model": "github-copilot/claude-fable-5.1", "thinking": "high" },
+      "worker-high": { "model": "github-copilot/gpt-6.1-sol", "thinking": "medium" },
+      "worker-low": { "model": "github-copilot/claude-haiku-5.5", "thinking": "high" },
+      "ui-worker": { "model": "github-copilot/claude-sonnet-5.5", "thinking": "high" },
+      "worker": { "model": "github-copilot/claude-sonnet-5.5", "thinking": "medium" },
+      "vision": { "model": "github-copilot/claude-sonnet-5.5", "thinking": "medium" },
+      "implementer": { "model": "github-copilot/claude-sonnet-5.5", "thinking": "medium" },
+      "helper": { "model": "github-copilot/claude-haiku-5.5", "thinking": "high" }
+    },
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "allow": [
+        "github-copilot/claude-haiku-5.5",
+        "github-copilot/claude-sonnet-5.5",
+        "github-copilot/claude-opus-5.5",
+        "github-copilot/gpt-6.1-sol",
+        "github-copilot/claude-fable-5.1"
+      ],
+      "agents": {
+        "researcher": { "allow": ["github-copilot/claude-haiku-5.5"] },
+        "planner": { "allow": ["github-copilot/gpt-6.1-sol"] },
+        "plan-reviewer": { "allow": ["github-copilot/claude-opus-5.5"] },
+        "code-reviewer": { "allow": ["github-copilot/claude-opus-5.5"] },
+        "oracle": { "allow": ["github-copilot/claude-fable-5.1", "github-copilot/claude-opus-5.5"] },
+        "worker-high": { "allow": ["github-copilot/gpt-6.1-sol"] },
+        "worker-low": { "allow": ["github-copilot/claude-haiku-5.5"] },
+        "ui-worker": { "allow": ["github-copilot/claude-sonnet-5.5"] },
+        "worker": { "allow": ["github-copilot/claude-sonnet-5.5"] },
+        "vision": { "allow": ["github-copilot/claude-sonnet-5.5"] },
+        "plan-author": { "allow": ["github-copilot/gpt-6.1-sol"] },
+        "implementer": { "allow": ["github-copilot/claude-sonnet-5.5", "github-copilot/gpt-6.1-sol"] },
+        "reviewer": { "allow": ["github-copilot/claude-opus-5.5"] },
+        "helper": { "allow": ["github-copilot/claude-haiku-5.5"] }
+      }
+    }
+  },
+  "packages": []
+}

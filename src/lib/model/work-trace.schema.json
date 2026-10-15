@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/work-trace/v3/schema.json",
+  "title": "Work Trace v3",
+  "description": "Work Trace: portable saved trace of exclusive persistent agent sessions, execution spans, compaction, and Git worktree/branch context. Cross-reference and temporal constraints require semantic validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "trace",
+    "repositories",
+    "worktrees",
+    "worktreeRefs",
+    "agentSessions",
+    "spans",
+    "events"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 3
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "observedUntilMs"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observedUntilMs": {
+          "$ref": "#/$defs/nonnegative"
+        }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/repository"
+      },
+      "description": "Optional repository context. Use an empty array if unavailable."
+    },
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/worktree"
+      },
+      "description": "Stable local checkout identities. A worktree is not identified by its branch name."
+    },
+    "worktreeRefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/worktreeRef"
+      },
+      "description": "Observed checked-out branch/ref intervals, half-open except at the terminal observation watermark. Gaps mean unknown, not an inferred branch."
+    },
+    "agentSessions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/agentSession"
+      },
+      "description": "Session identities persist across activations. An agent session may have only one active agent span at a time (semantic validation)."
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/span"
+      },
+      "description": "Time-bounded activations. Recorded running spans are allowed in saved incomplete snapshots; the viewer does not implement live updates."
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sessionEvent"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonnegative": {
+      "type": "number",
+      "minimum": 0
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "agentSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "agentType"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "agentType": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        }
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "startMs",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "agent",
+            "tool",
+            "model"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "parentId": {
+          "$ref": "#/$defs/id"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "start",
+            "resume"
+          ]
+        },
+        "resumesSpanId": {
+          "$ref": "#/$defs/id"
+        },
+        "startMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "endMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "ok",
+            "error",
+            "cancelled"
+          ]
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        },
+        "worktreeId": {
+          "$ref": "#/$defs/id",
+          "description": "Optional primary Git worktree for the duration of this span. Absence is unknown, not inherited from its parent or prior session activation."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "running"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "endMs"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "endMs"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "agent"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "sessionId",
+              "mode"
+            ]
+          },
+          "else": {
+            "required": [
+              "parentId",
+              "label"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "sessionId"
+                  ]
+                },
+                {
+                  "required": [
+                    "mode"
+                  ]
+                },
+                {
+                  "required": [
+                    "resumesSpanId"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "resume"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "resumesSpanId"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "resumesSpanId"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "sessionEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "sessionId",
+        "atMs"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "compaction"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/id"
+        },
+        "spanId": {
+          "$ref": "#/$defs/id"
+        },
+        "atMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "endMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "trigger": {
+          "enum": [
+            "automatic",
+            "manual",
+            "unknown"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "error",
+            "unknown"
+          ]
+        },
+        "tokensBefore": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokensAfter": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "label": {
+          "type": "string"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "remoteUrl": {
+          "type": "string"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "repositoryId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "main",
+            "linked",
+            "unknown"
+          ]
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        }
+      }
+    },
+    "gitRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ],
+          "properties": {
+            "kind": {
+              "const": "branch"
+            },
+            "name": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "commitSha"
+          ],
+          "properties": {
+            "kind": {
+              "const": "detached"
+            },
+            "commitSha": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      ]
+    },
+    "worktreeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "worktreeId",
+        "startMs",
+        "endMs",
+        "ref"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "worktreeId": {
+          "$ref": "#/$defs/id"
+        },
+        "startMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "endMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "ref": {
+          "$ref": "#/$defs/gitRef"
+        }
+      }
+    }
+  }
+}

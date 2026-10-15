@@ -1,0 +1,436 @@
+{
+  "schemaVersion": 3,
+  "trace": {
+    "id": "sample-agent-execution-001",
+    "title": "Implement notification system with nested and resumed agents",
+    "startedAt": "2026-10-15T13:00:00Z",
+    "observedUntilMs": 240000
+  },
+  "repositories": [
+    {
+      "id": "app-repo",
+      "label": "Notification service"
+    }
+  ],
+  "worktrees": [
+    {
+      "id": "wt-main",
+      "repositoryId": "app-repo",
+      "label": "Main checkout",
+      "kind": "main"
+    },
+    {
+      "id": "wt-backend",
+      "repositoryId": "app-repo",
+      "label": "Backend feature worktree",
+      "kind": "linked",
+      "path": "../notification-backend"
+    },
+    {
+      "id": "wt-frontend",
+      "repositoryId": "app-repo",
+      "label": "Frontend feature worktree",
+      "kind": "linked",
+      "path": "../notification-frontend"
+    }
+  ],
+  "worktreeRefs": [
+    {
+      "id": "main-ref",
+      "worktreeId": "wt-main",
+      "startMs": 0,
+      "endMs": 240000,
+      "ref": {
+        "kind": "branch",
+        "name": "main"
+      }
+    },
+    {
+      "id": "backend-ref-a",
+      "worktreeId": "wt-backend",
+      "startMs": 40000,
+      "endMs": 129000,
+      "ref": {
+        "kind": "branch",
+        "name": "feat/notifications-backend"
+      }
+    },
+    {
+      "id": "backend-ref-b",
+      "worktreeId": "wt-backend",
+      "startMs": 129000,
+      "endMs": 240000,
+      "ref": {
+        "kind": "branch",
+        "name": "fix/notifications-backend"
+      }
+    },
+    {
+      "id": "frontend-ref",
+      "worktreeId": "wt-frontend",
+      "startMs": 50000,
+      "endMs": 240000,
+      "ref": {
+        "kind": "branch",
+        "name": "feat/notifications-ui"
+      }
+    }
+  ],
+  "agentSessions": [
+    {
+      "id": "main-session",
+      "agentType": "orchestrator",
+      "label": "Main orchestrator"
+    },
+    {
+      "id": "research-a-session",
+      "agentType": "researcher",
+      "label": "API research (resumable)"
+    },
+    {
+      "id": "research-b-session",
+      "agentType": "researcher",
+      "label": "DB research"
+    },
+    {
+      "id": "sdk-session",
+      "agentType": "researcher",
+      "label": "SDK inspection"
+    },
+    {
+      "id": "dependency-session",
+      "agentType": "researcher",
+      "label": "Dependency audit"
+    },
+    {
+      "id": "backend-session",
+      "agentType": "implementer",
+      "label": "Backend development (resumed after review)"
+    },
+    {
+      "id": "frontend-session",
+      "agentType": "implementer",
+      "label": "Frontend development"
+    },
+    {
+      "id": "types-session",
+      "agentType": "implementer",
+      "label": "Endpoint types"
+    },
+    {
+      "id": "ui-session",
+      "agentType": "implementer",
+      "label": "Notification UI"
+    },
+    {
+      "id": "api-followup-session",
+      "agentType": "researcher",
+      "label": "API follow-up"
+    },
+    {
+      "id": "review-session",
+      "agentType": "reviewer",
+      "label": "Implementation review"
+    },
+    {
+      "id": "security-session",
+      "agentType": "reviewer",
+      "label": "Security audit"
+    },
+    {
+      "id": "audit-session",
+      "agentType": "reviewer",
+      "label": "Post-merge audit"
+    }
+  ],
+  "spans": [
+    {
+      "id": "main-1",
+      "kind": "agent",
+      "sessionId": "main-session",
+      "mode": "start",
+      "label": "Main session",
+      "startMs": 0,
+      "endMs": 240000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "research-a-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "research-a-session",
+      "mode": "start",
+      "label": "Research API (start)",
+      "startMs": 7000,
+      "endMs": 39000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "research-b-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "research-b-session",
+      "mode": "start",
+      "label": "Research database",
+      "startMs": 10000,
+      "endMs": 31000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "sdk-1",
+      "kind": "agent",
+      "parentId": "research-a-1",
+      "sessionId": "sdk-session",
+      "mode": "start",
+      "label": "Inspect SDK",
+      "startMs": 14000,
+      "endMs": 34000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "dependency-1",
+      "kind": "agent",
+      "parentId": "sdk-1",
+      "sessionId": "dependency-session",
+      "mode": "start",
+      "label": "Inspect dependencies",
+      "startMs": 18000,
+      "endMs": 27000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "dependency-model-1",
+      "kind": "model",
+      "parentId": "dependency-1",
+      "label": "Summarize dependency graph",
+      "startMs": 19500,
+      "endMs": 24500,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "db-tool-1",
+      "kind": "tool",
+      "parentId": "research-b-1",
+      "label": "Inspect DB schema",
+      "startMs": 16000,
+      "endMs": 22000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "backend-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "backend-session",
+      "mode": "start",
+      "label": "Implement backend",
+      "startMs": 45000,
+      "endMs": 144000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "frontend-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "frontend-session",
+      "mode": "start",
+      "label": "Implement frontend",
+      "startMs": 55000,
+      "endMs": 146000,
+      "status": "ok",
+      "worktreeId": "wt-frontend"
+    },
+    {
+      "id": "types-1",
+      "kind": "agent",
+      "parentId": "backend-1",
+      "sessionId": "types-session",
+      "mode": "start",
+      "label": "Generate endpoint types",
+      "startMs": 61000,
+      "endMs": 90000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "ui-1",
+      "kind": "agent",
+      "parentId": "frontend-1",
+      "sessionId": "ui-session",
+      "mode": "start",
+      "label": "Build notification UI",
+      "startMs": 68000,
+      "endMs": 130000,
+      "status": "ok",
+      "worktreeId": "wt-frontend"
+    },
+    {
+      "id": "research-a-2",
+      "kind": "agent",
+      "parentId": "backend-1",
+      "sessionId": "research-a-session",
+      "mode": "resume",
+      "resumesSpanId": "research-a-1",
+      "label": "Resume API research",
+      "startMs": 92000,
+      "endMs": 123000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "api-followup-1",
+      "kind": "agent",
+      "parentId": "research-a-2",
+      "sessionId": "api-followup-session",
+      "mode": "start",
+      "label": "Explore API changes",
+      "startMs": 97000,
+      "endMs": 112000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "backend-tests-1",
+      "kind": "tool",
+      "parentId": "backend-1",
+      "label": "Backend integration tests",
+      "startMs": 104000,
+      "endMs": 119000,
+      "status": "error",
+      "attributes": {
+        "exitCode": 1
+      },
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "test-fix-1",
+      "kind": "tool",
+      "parentId": "backend-1",
+      "label": "Rerun backend tests",
+      "startMs": 127000,
+      "endMs": 140000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "review-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "review-session",
+      "mode": "start",
+      "label": "Review implementation",
+      "startMs": 148000,
+      "endMs": 185000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "security-1",
+      "kind": "agent",
+      "parentId": "review-1",
+      "sessionId": "security-session",
+      "mode": "start",
+      "label": "Security review",
+      "startMs": 154000,
+      "endMs": 176000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "fix-1",
+      "kind": "agent",
+      "parentId": "main-1",
+      "sessionId": "backend-session",
+      "mode": "resume",
+      "resumesSpanId": "backend-1",
+      "label": "Apply review fixes",
+      "startMs": 187000,
+      "endMs": 214000,
+      "status": "ok",
+      "worktreeId": "wt-backend"
+    },
+    {
+      "id": "audit-1",
+      "kind": "agent",
+      "parentId": "fix-1",
+      "sessionId": "audit-session",
+      "mode": "start",
+      "label": "Detached post-merge audit",
+      "startMs": 208000,
+      "endMs": 236000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "audit-tool-1",
+      "kind": "tool",
+      "parentId": "audit-1",
+      "label": "Check deployment report",
+      "startMs": 218000,
+      "endMs": 230000,
+      "status": "ok",
+      "worktreeId": "wt-main"
+    },
+    {
+      "id": "final-model-1",
+      "kind": "model",
+      "parentId": "main-1",
+      "label": "Final response generation",
+      "startMs": 233000,
+      "status": "running",
+      "attributes": {
+        "model": "demo"
+      },
+      "worktreeId": "wt-main"
+    }
+  ],
+  "events": [
+    {
+      "id": "compact-research-a",
+      "kind": "compaction",
+      "sessionId": "research-a-session",
+      "spanId": "research-a-1",
+      "atMs": 25000,
+      "endMs": 29000,
+      "trigger": "automatic",
+      "outcome": "ok",
+      "tokensBefore": 72000,
+      "tokensAfter": 18500
+    },
+    {
+      "id": "compact-backend",
+      "kind": "compaction",
+      "sessionId": "backend-session",
+      "spanId": "backend-1",
+      "atMs": 87000,
+      "trigger": "manual",
+      "outcome": "ok"
+    },
+    {
+      "id": "compact-main",
+      "kind": "compaction",
+      "sessionId": "main-session",
+      "spanId": "main-1",
+      "atMs": 159000,
+      "endMs": 164000,
+      "trigger": "automatic",
+      "outcome": "ok"
+    },
+    {
+      "id": "compact-paused",
+      "kind": "compaction",
+      "sessionId": "research-b-session",
+      "atMs": 36000,
+      "trigger": "unknown",
+      "outcome": "unknown",
+      "label": "Background compaction while session parked"
+    }
+  ]
+}
