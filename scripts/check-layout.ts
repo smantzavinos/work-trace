@@ -49,16 +49,26 @@ function violations(sc: TimelineScene, trace: WorkTrace, opts: LayoutOptions): s
 				bad.push(`intruder ${o.id} in worktree box of ${i.id}`);
 	}
 
-	// 4. Row continuity. A bar takes its flow predecessor's row (link source or previous work item
-	//    step), else its resumed run's row, whenever that row is free over the gap and the bar.
+	// 4. Row continuity. A bar takes its flow predecessor's row (link source, previous work item
+	//    step, or previous same-worktree sibling for a worktree switch), else its resumed run's row, whenever that row is free over the gap and the bar.
 	//    Free means: no other bar, no solid worktree block it isn't part of, and no gap still
 	//    reserved for a later flow step. Checked for sibling bars without visible children: with
 	//    children, the whole subtree must fit below too, which this check can't judge independently.
 	const flowPred = flowPredecessors(
 		items,
 		sc.workItems,
-		sc.handoffs.filter((h) => !h.implicit).map((h) => ({ from: h.fromSpanId, to: h.toSpanId }))
+		sc.handoffs.filter((h) => !h.implicit).map((h) => ({ from: h.fromSpanId, to: h.toSpanId })),
+		sc.baseWorktreeId
 	);
+	// a worktree switch with an earlier finished same-worktree sibling always has a flow predecessor
+	const ownerWtOf = (i: (typeof items)[number]) =>
+		i.visualParentId ? sc.itemById.get(i.visualParentId)!.span.worktreeId : sc.baseWorktreeId;
+	for (const b of items) {
+		const wt = b.span.worktreeId;
+		if (wt === undefined || wt === ownerWtOf(b) || flowPred.has(b.id)) continue;
+		if (items.some((a) => a.visualParentId === b.visualParentId && a.span.worktreeId === wt && a.effectiveEndMs <= b.startMs && a.id !== b.id))
+			bad.push(`${b.id} has no flow predecessor in ${wt}`);
+	}
 	const order = new Map(items.map((i, k) => [i.id, k]));
 	const pendingGaps = [...flowPred].map(([m, p]) => {
 		const mi = sc.itemById.get(m)!;
@@ -97,6 +107,41 @@ function violations(sc: TimelineScene, trace: WorkTrace, opts: LayoutOptions): s
 				bad.push(`intruder ${o.id} in band of ${band.workItemId}`);
 	}
 
+	// 8. Worktree regions: each holds only its roots' subtrees (one parent, one worktree, each root
+	//    a worktree switch), and consecutive same-worktree siblings are merged whenever the
+	//    spanning rectangle would stay clean.
+	const outsiders = (r0: number, r1: number, t0: number, t1: number, roots: string[]) => {
+		const ids = new Set(roots.flatMap(subtree));
+		return items.filter((o) => !ids.has(o.id) && o.row >= r0 && o.row <= r1 && o.startMs < t1 && t0 < o.effectiveEndMs);
+	};
+	const groupKey = (id: string, wt: string) => `${sc.itemById.get(id)!.visualParentId ?? ''}|${wt}`;
+	const regionsByGroup = new Map<string, typeof sc.worktreeRegions>();
+	for (const r of sc.worktreeRegions) {
+		if (r.rootSpanIds[0] !== r.rootSpanId) bad.push(`region ${r.rootSpanId} roots out of order`);
+		const keys = new Set(r.rootSpanIds.map((id) => groupKey(id, r.worktreeId)));
+		if (keys.size !== 1) bad.push(`region ${r.rootSpanId} mixes parents`);
+		for (const id of r.rootSpanIds) {
+			const it = sc.itemById.get(id)!;
+			const p = it.visualParentId ? sc.itemById.get(it.visualParentId) : undefined;
+			if (it.span.worktreeId !== r.worktreeId || (p ? p.span.worktreeId : sc.baseWorktreeId) === r.worktreeId)
+				bad.push(`region root ${id} is not a switch to ${r.worktreeId}`);
+		}
+		for (const o of outsiders(r.rowStart, r.rowEnd, r.startMs, r.endMs, r.rootSpanIds))
+			bad.push(`intruder ${o.id} in region of ${r.rootSpanId}`);
+		const k = [...keys][0];
+		regionsByGroup.set(k, [...(regionsByGroup.get(k) ?? []), r]);
+	}
+	for (const g of regionsByGroup.values()) {
+		g.sort((a, b) => a.startMs - b.startMs);
+		for (let k = 1; k < g.length; k++) {
+			const [a, b] = [g[k - 1], g[k]];
+			const r0 = Math.min(a.rowStart, b.rowStart);
+			const r1 = Math.max(a.rowEnd, b.rowEnd);
+			if (!outsiders(r0, r1, Math.min(a.startMs, b.startMs), Math.max(a.endMs, b.endMs), [...a.rootSpanIds, ...b.rootSpanIds]).length)
+				bad.push(`regions of ${a.rootSpanId} and ${b.rootSpanId} not merged`);
+		}
+	}
+
 	// 5. Deterministic regardless of input order.
 	const shuffled = structuredClone(trace);
 	shuffled.spans.reverse();
@@ -104,7 +149,7 @@ function violations(sc: TimelineScene, trace: WorkTrace, opts: LayoutOptions): s
 	shuffled.links?.reverse();
 	const sig = (s: TimelineScene) =>
 		JSON.stringify(s.items.map((i) => [i.id, i.row]).sort()) + JSON.stringify(s.positionedEvents) +
-		JSON.stringify(s.workItemBands) + JSON.stringify([...s.handoffs].sort((a, b) => (a.fromSpanId + a.toSpanId < b.fromSpanId + b.toSpanId ? -1 : 1)));
+		JSON.stringify(s.workItemBands) + JSON.stringify(s.worktreeRegions) + JSON.stringify([...s.handoffs].sort((a, b) => (a.fromSpanId + a.toSpanId < b.fromSpanId + b.toSpanId ? -1 : 1)));
 	if (sig(sc) !== sig(computeLayout(shuffled, opts))) bad.push('not deterministic under input shuffle');
 
 	// 6. Pixel rows at every density: strictly increasing, and region boxes contain their bars.
@@ -114,7 +159,7 @@ function violations(sc: TimelineScene, trace: WorkTrace, opts: LayoutOptions): s
 			if (!(rm.y[r] >= rm.y[r - 1] + rm.g.barH)) bad.push(`rows ${r - 1}/${r} touch at density ${d}`);
 		const vp = { left: 0, viewStartMs: 0, pxPerMs: 1 };
 		for (const rect of regionRects(sc, rm, vp))
-			for (const id of subtree(rect.region.rootSpanId)) {
+			for (const id of rect.region.rootSpanIds.flatMap(subtree)) {
 				const m = sc.itemById.get(id)!;
 				const y = rm.y[m.row];
 				if (y < rect.y1 || y + rm.g.barH > rect.y2) bad.push(`bar ${id} outside its box at density ${d}`);

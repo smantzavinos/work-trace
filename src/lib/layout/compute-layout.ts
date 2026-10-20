@@ -37,14 +37,18 @@ export interface LayoutItem {
 }
 
 /**
- * A rectangle (rows x time) holding one visible subtree that runs in a different worktree than
- * its visual parent (or than the base worktree, for roots). Nothing outside the subtree lies
- * inside it. Regions nest when a subtree switches worktree again. Unknown worktrees get none.
+ * A rectangle (rows x time) holding the visible subtrees of one or more sibling calls that run in
+ * a different worktree than their visual parent (or than the base worktree, for roots).
+ * Consecutive same-worktree siblings share one region when nothing else lies between them.
+ * Nothing outside the subtrees lies inside it. Regions nest when a subtree switches worktree
+ * again. Unknown worktrees get none.
  */
 export interface WorktreeRegion {
 	worktreeId: string;
-	/** visible span whose subtree the region holds */
+	/** first visible span whose subtree the region holds */
 	rootSpanId: string;
+	/** every visible span whose subtree the region holds, in start order */
+	rootSpanIds: string[];
 	rowStart: number;
 	/** inclusive */
 	rowEnd: number;
@@ -218,7 +222,7 @@ export function computeLayout(trace: WorkTrace, options: LayoutOptions = {}): Ti
 		if (from && to && from !== to) visLinks.push({ from, to, kind: l.kind });
 	}
 	const steps = workItemSteps(index, items, itemById);
-	const totalRows = pack(items, baseWorktreeId, flowPredecessors(items, steps, visLinks));
+	const totalRows = pack(items, baseWorktreeId, flowPredecessors(items, steps, visLinks, baseWorktreeId));
 
 	return {
 		index,
@@ -258,7 +262,9 @@ interface Occ {
  *
  * Flows keep work readable left to right: a step whose flow predecessor (see `flowPredecessors`) is a
  * sibling takes that predecessor's row when the step and the gap before it are free, and other
- * siblings avoid that gap and step while it is pending. Failing that, a resumed run whose previous
+ * siblings avoid that gap and step while it is pending (a call in another worktree than its
+ * parent counts its previous same-worktree sibling as a flow predecessor, so a worktree's calls
+ * line up into one region). Failing that, a resumed run whose previous
  * run is a sibling reuses that run's row when it and the pause are free.
  * Deterministic; children always sit below their visual parent; no two bars in a row overlap.
  * Assigns `row` on every item and returns the number of rows.
@@ -382,14 +388,16 @@ function workItemSteps(index: TraceIndex, items: LayoutItem[], itemById: Map<str
 
 /**
  * Flow predecessor of each visible bar, among its visible siblings: a link source in its own work
- * item, else any link source, else the previous step of its work item; within each tier, the
- * candidate that ended last before it started.
+ * item, else any link source, else the previous step of its work item, else (for a bar in another
+ * worktree than its visual parent) the previous sibling in the same worktree; within each tier,
+ * the candidate that ended last before it started.
  * Bars that overlap their candidates have none (parallel work cannot share a row).
  */
 export function flowPredecessors(
 	items: LayoutItem[],
 	steps: WorkItemSteps[],
-	visLinks: { from: string; to: string }[]
+	visLinks: { from: string; to: string }[],
+	baseWorktreeId: string | undefined
 ): Map<string, string> {
 	const byId = new Map(items.map((i) => [i.id, i]));
 	const pred = new Map<string, string>();
@@ -407,13 +415,29 @@ export function flowPredecessors(
 	for (const l of visLinks) linkedFrom.set(l.to, [...(linkedFrom.get(l.to) ?? []), l.from]);
 	const stepsOf = new Map<string, string[]>();
 	for (const w of steps) for (const id of w.stepIds) stepsOf.set(id, w.stepIds);
+	// worktree switches grouped by parent and worktree
+	const switchKey = (it: LayoutItem) => {
+		const wt = it.span.worktreeId;
+		const ownerWt = it.visualParentId ? byId.get(it.visualParentId)?.span.worktreeId : baseWorktreeId;
+		return wt !== undefined && wt !== ownerWt ? `${it.visualParentId ?? ''}\u0000${wt}` : undefined;
+	};
+	const switches = new Map<string, string[]>();
+	for (const it of items) {
+		const k = switchKey(it);
+		if (!k) continue;
+		const list = switches.get(k);
+		if (list) list.push(it.id);
+		else switches.set(k, [it.id]);
+	}
 	for (const it of items) {
 		const linked = linkedFrom.get(it.id) ?? [];
 		const sameItem = stepsOf.get(it.id) ?? [];
+		const k = switchKey(it);
 		const p =
 			latestBefore(it, linked.filter((id) => sameItem.includes(id))) ??
 			latestBefore(it, linked) ??
-			latestBefore(it, sameItem);
+			latestBefore(it, sameItem) ??
+			(k ? latestBefore(it, switches.get(k)!) : undefined);
 		if (p) pred.set(it.id, p);
 	}
 	return pred;
@@ -501,7 +525,7 @@ function worktreeRegions(
 		let region: WorktreeRegion | undefined;
 		const wt = it.span.worktreeId;
 		if (wt !== undefined && wt !== ownerWt) {
-			region = { worktreeId: wt, rootSpanId: it.id, rowStart: it.row, rowEnd: it.row, startMs: it.startMs, endMs: it.effectiveEndMs, depth };
+			region = { worktreeId: wt, rootSpanId: it.id, rootSpanIds: [it.id], rowStart: it.row, rowEnd: it.row, startMs: it.startMs, endMs: it.effectiveEndMs, depth };
 			regions.push(region);
 		}
 		const extent = { rowEnd: it.row, endMs: it.effectiveEndMs };
@@ -517,7 +541,65 @@ function worktreeRegions(
 		return extent;
 	};
 	for (const it of items) if (!it.visualParentId || !itemById.has(it.visualParentId)) visit(it, baseWorktreeId, 0);
-	return regions.sort((a, b) => a.depth - b.depth || a.startMs - b.startMs || a.rowStart - b.rowStart);
+	return mergeRegions(regions, items, itemById).sort((a, b) => a.depth - b.depth || a.startMs - b.startMs || a.rowStart - b.rowStart);
+}
+
+/**
+ * Consecutive regions of sibling calls in the same worktree become one region when the rectangle
+ * spanning them holds no bar outside their subtrees (like work item bands).
+ */
+function mergeRegions(regions: WorktreeRegion[], items: LayoutItem[], itemById: Map<string, LayoutItem>): WorktreeRegion[] {
+	const groups = new Map<string, WorktreeRegion[]>();
+	for (const r of regions) {
+		const k = `${itemById.get(r.rootSpanId)!.visualParentId ?? ''}\u0000${r.worktreeId}`;
+		const g = groups.get(k);
+		if (g) g.push(r);
+		else groups.set(k, [r]);
+	}
+	if ([...groups.values()].every((g) => g.length < 2)) return regions;
+	const byRow = new Map<number, LayoutItem[]>();
+	for (const it of items) {
+		const list = byRow.get(it.row);
+		if (list) list.push(it);
+		else byRow.set(it.row, [it]);
+	}
+	const insideAll = (it: LayoutItem, ids: Set<string>) => {
+		for (let p: LayoutItem | undefined = it; p; p = p.visualParentId ? itemById.get(p.visualParentId) : undefined)
+			if (ids.has(p.id)) return true;
+		return false;
+	};
+	const clean = (r: WorktreeRegion, ids: Set<string>) => {
+		for (let row = r.rowStart; row <= r.rowEnd; row++)
+			for (const o of byRow.get(row) ?? [])
+				if (o.startMs < r.endMs && r.startMs < o.effectiveEndMs && !insideAll(o, ids)) return false;
+		return true;
+	};
+	const out: WorktreeRegion[] = [];
+	for (const g of groups.values()) {
+		if (g.length < 2) {
+			out.push(...g);
+			continue;
+		}
+		g.sort((a, b) => a.startMs - b.startMs || cmpStr(a.rootSpanId, b.rootSpanId));
+		// Merge neighbours until stable: a merge can absorb bars that blocked an earlier one.
+		for (let k = 0; k < g.length - 1; ) {
+			const [cur, r] = [g[k], g[k + 1]];
+			const merged: WorktreeRegion = {
+				...cur,
+				rootSpanIds: [...cur.rootSpanIds, ...r.rootSpanIds],
+				rowStart: Math.min(cur.rowStart, r.rowStart),
+				rowEnd: Math.max(cur.rowEnd, r.rowEnd),
+				startMs: Math.min(cur.startMs, r.startMs),
+				endMs: Math.max(cur.endMs, r.endMs)
+			};
+			if (clean(merged, new Set(merged.rootSpanIds))) {
+				g.splice(k, 2, merged);
+				k = Math.max(0, k - 1);
+			} else k++;
+		}
+		out.push(...g);
+	}
+	return out;
 }
 
 /** Layout trusts validated input, but must never hang on a parent cycle. */
