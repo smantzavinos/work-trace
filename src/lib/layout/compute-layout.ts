@@ -70,6 +70,38 @@ interface ResumeEdge {
 	toSpanId: string;
 }
 
+/** A work item's visible steps: spans tagged with it that have no visible ancestor in it. */
+export interface WorkItemSteps {
+	workItemId: string;
+	label: string;
+	/** start order */
+	stepIds: string[];
+}
+
+/**
+ * A row segment holding consecutive steps of one work item and nothing else between them,
+ * drawn as a band behind the bars. A work item split across rows has several bands.
+ */
+export interface WorkItemBand {
+	workItemId: string;
+	row: number;
+	startMs: number;
+	endMs: number;
+	stepIds: string[];
+	/** first band of its work item (carries the title) */
+	first: boolean;
+}
+
+/** Handoff arrow between visible bars: an explicit link, or consecutive steps of a work item. */
+export interface Handoff {
+	fromSpanId: string;
+	toSpanId: string;
+	/** relation label(s) from the link(s), e.g. "review" */
+	kind?: string;
+	/** true when inferred from work item step order rather than an explicit link */
+	implicit: boolean;
+}
+
 export interface TimelineScene {
 	index: TraceIndex;
 	items: LayoutItem[];
@@ -84,6 +116,10 @@ export interface TimelineScene {
 	worktreeRegions: WorktreeRegion[];
 	positionedEvents: PositionedEvent[];
 	resumeEdges: ResumeEdge[];
+	/** work items with at least one visible step, by first step start */
+	workItems: WorkItemSteps[];
+	workItemBands: WorkItemBand[];
+	handoffs: Handoff[];
 	agentTypes: string[];
 	startMs: number;
 	endMs: number;
@@ -168,7 +204,21 @@ export function computeLayout(trace: WorkTrace, options: LayoutOptions = {}): Ti
 		.filter((sp) => !sp.parentId)
 		.sort((a, b) => a.startMs - b.startMs || cmpStr(a.id, b.id))[0];
 	const baseWorktreeId = root?.worktreeId;
-	const totalRows = pack(items, baseWorktreeId);
+
+	// Handoff links mapped onto visible bars (a hidden endpoint moves to its nearest visible ancestor).
+	const visibleSelfOrAncestor = (id: string): string | undefined => {
+		let s = index.spans.get(id);
+		while (s && !visibleIds.has(s.id)) s = s.parentId ? index.spans.get(s.parentId) : undefined;
+		return s?.id;
+	};
+	const visLinks: { from: string; to: string; kind?: string }[] = [];
+	for (const l of index.links) {
+		const from = visibleSelfOrAncestor(l.fromSpanId);
+		const to = visibleSelfOrAncestor(l.toSpanId);
+		if (from && to && from !== to) visLinks.push({ from, to, kind: l.kind });
+	}
+	const steps = workItemSteps(index, items, itemById);
+	const totalRows = pack(items, baseWorktreeId, flowPredecessors(items, steps, visLinks));
 
 	return {
 		index,
@@ -181,6 +231,9 @@ export function computeLayout(trace: WorkTrace, options: LayoutOptions = {}): Ti
 		resumeEdges: items
 			.filter((i) => i.span.kind === 'agent' && i.span.resumesSpanId && itemById.has(i.span.resumesSpanId))
 			.map((i) => ({ fromSpanId: (i.span as { resumesSpanId: string }).resumesSpanId, toSpanId: i.id })),
+		workItems: steps,
+		workItemBands: workItemBands(items, itemById, steps),
+		handoffs: handoffs(itemById, steps, visLinks),
 		agentTypes: [...new Set(trace.agentSessions.map((s) => s.agentType))].sort(cmpStr),
 		startMs: 0,
 		endMs: until
@@ -203,11 +256,14 @@ interface Occ {
  * worktree switch yields a clean rectangular region that renderers can box, while spans of the
  * same worktree still interlock as tightly as greedy lane packing.
  *
- * A resumed run whose previous run is a sibling reuses that run's row when it and the gap are free.
+ * Flows keep work readable left to right: a step whose flow predecessor (see `flowPredecessors`) is a
+ * sibling takes that predecessor's row when the step and the gap before it are free, and other
+ * siblings avoid that gap and step while it is pending. Failing that, a resumed run whose previous
+ * run is a sibling reuses that run's row when it and the pause are free.
  * Deterministic; children always sit below their visual parent; no two bars in a row overlap.
  * Assigns `row` on every item and returns the number of rows.
  */
-function pack(items: LayoutItem[], baseWorktreeId: string | undefined): number {
+function pack(items: LayoutItem[], baseWorktreeId: string | undefined, flowPred: Map<string, string>): number {
 	const itemById = new Map(items.map((i) => [i.id, i]));
 	const children = new Map<string | undefined, LayoutItem[]>();
 	for (const it of items) {
@@ -224,25 +280,58 @@ function pack(items: LayoutItem[], baseWorktreeId: string | undefined): number {
 
 	// Places `kids` under an owner occupying `occ`; returns occupancy including the kids.
 	const placeKids = (occ: Occ[], kids: LayoutItem[], ownerWt: string | undefined, minOffset: number) => {
-		for (const kid of kids) {
+		// cached per sibling group: a flow successor's shape is needed for its reservation and placement
+		const shapes = new Map<string, Occ[]>();
+		const shapeOf = (kid: LayoutItem): Occ[] => {
+			const known = shapes.get(kid.id);
+			if (known) return known;
 			const b = block(kid);
-			const solid = kid.span.worktreeId !== ownerWt;
-			const shape: Occ[] = solid
-				? Array.from({ length: b.height }, (_, row) => ({ row, startMs: b.startMs, endMs: b.endMs }))
-				: b.occ;
-			// A resumed run takes its previous run's row when the run and the pause before it are free
-			// (both runs siblings here), so the pause reads as one straight, unobstructed line.
-			const prevId = kid.span.kind === 'agent' ? kid.span.resumesSpanId : undefined;
-			const prevOffset = prevId && kids.some((k) => k.id === prevId) ? relRow.get(prevId) : undefined;
-			let offset = minOffset;
+			const shape =
+				kid.span.worktreeId !== ownerWt
+					? Array.from({ length: b.height }, (_, row) => ({ row, startMs: b.startMs, endMs: b.endMs }))
+					: b.occ;
+			shapes.set(kid.id, shape);
+			return shape;
+		};
+		const kidIds = new Set(kids.map((k) => k.id));
+		// pending flow steps: successor id -> its predecessor's gap and its own shape, on the predecessor's row
+		const reserved = new Map<string, Occ[]>();
+		const successors = new Map<string, LayoutItem[]>();
+		for (const kid of kids) {
+			const pred = flowPred.get(kid.id);
+			if (pred && kidIds.has(pred)) successors.set(pred, [...(successors.get(pred) ?? []), kid]);
+		}
+		const othersReserved = (id: string): Occ[] =>
+			[...reserved].flatMap(([owner, r]) => (owner === id ? [] : r));
+		/** `prevId`'s row, if `kid` (with the gap since `prevId` ended) fits there. */
+		const sameRowAs = (kid: LayoutItem, shape: Occ[], blockers: Occ[], prevId: string | undefined) => {
+			const prevOffset = prevId && kidIds.has(prevId) ? relRow.get(prevId) : undefined;
 			const prev = prevId ? itemById.get(prevId) : undefined;
-			const withGap: Occ[] = prev
-				? [...shape, { row: 0, startMs: prev.effectiveEndMs, endMs: kid.startMs }]
-				: shape;
-			if (prevOffset !== undefined && !collides(occ, withGap, prevOffset)) offset = prevOffset;
-			else while (collides(occ, shape, offset)) offset++;
+			if (prevOffset === undefined || !prev) return undefined;
+			const withGap = [...shape, { row: 0, startMs: prev.effectiveEndMs, endMs: kid.startMs }];
+			return collides(blockers, withGap, prevOffset) ? undefined : prevOffset;
+		};
+		for (const kid of kids) {
+			const shape = shapeOf(kid);
+			const blockers = reserved.size ? [...occ, ...othersReserved(kid.id)] : occ;
+			// A flow step takes its predecessor's row; else a resumed run takes its previous run's row
+			// (so the pause reads as one straight, unobstructed line); else the lowest free row.
+			const resumed = kid.span.kind === 'agent' ? kid.span.resumesSpanId : undefined;
+			let offset =
+				sameRowAs(kid, shape, blockers, flowPred.get(kid.id)) ?? sameRowAs(kid, shape, blockers, resumed);
+			if (offset === undefined) {
+				offset = minOffset;
+				while (collides(blockers, shape, offset)) offset++;
+			}
 			relRow.set(kid.id, offset);
+			reserved.delete(kid.id);
 			for (const o of shape) occ.push({ row: o.row + offset, startMs: o.startMs, endMs: o.endMs });
+			for (const next of successors.get(kid.id) ?? []) {
+				reserved.set(next.id, [
+					{ row: offset, startMs: kid.effectiveEndMs, endMs: next.startMs },
+					...shapeOf(next).map((o) => ({ row: o.row + offset, startMs: o.startMs, endMs: o.endMs }))
+				]);
+			}
 		}
 		return occ;
 	};
@@ -271,6 +360,128 @@ function pack(items: LayoutItem[], baseWorktreeId: string | undefined): number {
 		rowOf.set(it.id, it.row);
 	}
 	return Math.max(1, ...top.map((o) => o.row + 1));
+}
+
+/** Visible steps of each work item: tagged spans with no visible ancestor tagged the same. */
+function workItemSteps(index: TraceIndex, items: LayoutItem[], itemById: Map<string, LayoutItem>): WorkItemSteps[] {
+	const out: WorkItemSteps[] = [];
+	for (const [workItemId, w] of index.workItems) {
+		const stepIds = items
+			.filter((it) => {
+				if (it.span.workItemId !== workItemId) return false;
+				for (let p = it.visualParentId; p; p = itemById.get(p)?.visualParentId)
+					if (itemById.get(p)?.span.workItemId === workItemId) return false;
+				return true;
+			})
+			.map((it) => it.id);
+		if (stepIds.length) out.push({ workItemId, label: w.label, stepIds });
+	}
+	const first = (w: WorkItemSteps) => itemById.get(w.stepIds[0])!;
+	return out.sort((a, b) => first(a).startMs - first(b).startMs || cmpStr(a.workItemId, b.workItemId));
+}
+
+/**
+ * Flow predecessor of each visible bar, among its visible siblings: a link source in its own work
+ * item, else any link source, else the previous step of its work item; within each tier, the
+ * candidate that ended last before it started.
+ * Bars that overlap their candidates have none (parallel work cannot share a row).
+ */
+export function flowPredecessors(
+	items: LayoutItem[],
+	steps: WorkItemSteps[],
+	visLinks: { from: string; to: string }[]
+): Map<string, string> {
+	const byId = new Map(items.map((i) => [i.id, i]));
+	const pred = new Map<string, string>();
+	const latestBefore = (it: LayoutItem, ids: Iterable<string>) => {
+		let best: LayoutItem | undefined;
+		for (const id of ids) {
+			const c = byId.get(id);
+			if (!c || c.id === it.id || c.visualParentId !== it.visualParentId || c.effectiveEndMs > it.startMs) continue;
+			if (!best || c.effectiveEndMs > best.effectiveEndMs || (c.effectiveEndMs === best.effectiveEndMs && cmpStr(c.id, best.id) > 0))
+				best = c;
+		}
+		return best?.id;
+	};
+	const linkedFrom = new Map<string, string[]>();
+	for (const l of visLinks) linkedFrom.set(l.to, [...(linkedFrom.get(l.to) ?? []), l.from]);
+	const stepsOf = new Map<string, string[]>();
+	for (const w of steps) for (const id of w.stepIds) stepsOf.set(id, w.stepIds);
+	for (const it of items) {
+		const linked = linkedFrom.get(it.id) ?? [];
+		const sameItem = stepsOf.get(it.id) ?? [];
+		const p =
+			latestBefore(it, linked.filter((id) => sameItem.includes(id))) ??
+			latestBefore(it, linked) ??
+			latestBefore(it, sameItem);
+		if (p) pred.set(it.id, p);
+	}
+	return pred;
+}
+
+/** Row segments of consecutive steps with nothing else between them on that row. */
+function workItemBands(items: LayoutItem[], itemById: Map<string, LayoutItem>, steps: WorkItemSteps[]): WorkItemBand[] {
+	if (!steps.length) return [];
+	const byRow = new Map<number, LayoutItem[]>();
+	for (const it of items) {
+		const list = byRow.get(it.row);
+		if (list) list.push(it);
+		else byRow.set(it.row, [it]);
+	}
+	const bands: WorkItemBand[] = [];
+	for (const w of steps) {
+		const open = new Map<number, WorkItemBand>();
+		let first = true;
+		for (const id of w.stepIds) {
+			const it = itemById.get(id)!;
+			const band = open.get(it.row);
+			const clear =
+				band !== undefined &&
+				!(byRow.get(it.row) ?? []).some(
+					(o) => !band.stepIds.includes(o.id) && o.id !== id && o.startMs < it.startMs && band.endMs < o.effectiveEndMs
+				);
+			if (band && clear) {
+				band.stepIds.push(id);
+				band.endMs = Math.max(band.endMs, it.effectiveEndMs);
+			} else {
+				const b = { workItemId: w.workItemId, row: it.row, startMs: it.startMs, endMs: it.effectiveEndMs, stepIds: [id], first };
+				first = false;
+				open.set(it.row, b);
+				bands.push(b);
+			}
+		}
+	}
+	return bands.sort((a, b) => a.row - b.row || a.startMs - b.startMs);
+}
+
+/** Explicit links (deduplicated per bar pair), plus implicit arrows between consecutive steps. */
+function handoffs(
+	itemById: Map<string, LayoutItem>,
+	steps: WorkItemSteps[],
+	visLinks: { from: string; to: string; kind?: string }[]
+): Handoff[] {
+	const out = new Map<string, Handoff>();
+	for (const l of visLinks) {
+		const key = `${l.from}\u0000${l.to}`;
+		const h = out.get(key);
+		if (!h) out.set(key, { fromSpanId: l.from, toSpanId: l.to, kind: l.kind, implicit: false });
+		else if (l.kind && !(h.kind ?? '').split(', ').includes(l.kind)) h.kind = h.kind ? `${h.kind}, ${l.kind}` : l.kind;
+	}
+	const linkedInto = new Set(visLinks.map((l) => l.to));
+	for (const w of steps) {
+		for (let k = 1; k < w.stepIds.length; k++) {
+			const to = itemById.get(w.stepIds[k])!;
+			if (linkedInto.has(to.id)) continue;
+			// the step that ended last before this one started (parallel steps get no arrow)
+			const from = w.stepIds
+				.slice(0, k)
+				.map((id) => itemById.get(id)!)
+				.filter((c) => c.effectiveEndMs <= to.startMs)
+				.sort((a, b) => b.effectiveEndMs - a.effectiveEndMs || cmpStr(b.id, a.id))[0];
+			if (from) out.set(`${from.id}\u0000${to.id}`, { fromSpanId: from.id, toSpanId: to.id, implicit: true });
+		}
+	}
+	return [...out.values()];
 }
 
 function worktreeRegions(

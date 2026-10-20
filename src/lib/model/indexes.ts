@@ -6,6 +6,8 @@ import type {
 	GitRef,
 	Repository,
 	WorkEvent,
+	WorkItem,
+	WorkLink,
 	Worktree,
 	WorktreeRefInterval
 } from './types.js';
@@ -26,6 +28,10 @@ export interface TraceIndex {
 	worktreeRefs: Map<string, WorktreeRefInterval[]>;
 	/** span id -> span that resumes it (next activation) */
 	nextActivation: Map<string, AgentSpan>;
+	workItems: Map<string, WorkItem>;
+	/** spans of each work item sorted by (startMs, id) */
+	workItemSpans: Map<string, WorkSpan[]>;
+	links: WorkLink[];
 }
 
 const byStartThenId = (
@@ -49,9 +55,11 @@ export function buildIndex(trace: WorkTrace): TraceIndex {
 	const sessionSpans = new Map<string, AgentSpan[]>();
 	const worktreeRefs = new Map<string, WorktreeRefInterval[]>();
 	const nextActivation = new Map<string, AgentSpan>();
+	const workItemSpans = new Map<string, WorkSpan[]>();
 
 	for (const s of trace.spans) {
 		if (s.parentId !== undefined) push(children, s.parentId, s);
+		if (s.workItemId !== undefined) push(workItemSpans, s.workItemId, s);
 		if (s.kind === 'agent') {
 			push(sessionSpans, s.sessionId, s);
 			if (s.resumesSpanId) nextActivation.set(s.resumesSpanId, s);
@@ -61,6 +69,7 @@ export function buildIndex(trace: WorkTrace): TraceIndex {
 	for (const list of children.values()) list.sort(byStartThenId);
 	for (const list of sessionSpans.values()) list.sort(byStartThenId);
 	for (const list of worktreeRefs.values()) list.sort(byStartThenId);
+	for (const list of workItemSpans.values()) list.sort(byStartThenId);
 
 	return {
 		trace,
@@ -72,7 +81,10 @@ export function buildIndex(trace: WorkTrace): TraceIndex {
 		children,
 		sessionSpans,
 		worktreeRefs,
-		nextActivation
+		nextActivation,
+		workItems: new Map((trace.workItems ?? []).map((w) => [w.id, w])),
+		workItemSpans,
+		links: trace.links ?? []
 	};
 }
 

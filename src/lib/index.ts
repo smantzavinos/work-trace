@@ -6,6 +6,8 @@ export type {
 	CallSpan,
 	WorkSpan,
 	WorkEvent,
+	WorkItem,
+	WorkLink,
 	CompactionEvent,
 	Repository,
 	Worktree,

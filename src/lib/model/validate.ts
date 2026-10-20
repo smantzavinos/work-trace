@@ -33,9 +33,9 @@ function semanticIssues(trace: WorkTrace): ValidationIssue[] {
 		'spans',
 		'events'
 	] as const;
-	for (const c of collections) {
+	for (const c of [...collections, 'workItems', 'links'] as const) {
 		const seen = new Set<string>();
-		trace[c].forEach((item, i) => {
+		(trace[c] ?? []).forEach((item, i) => {
 			if (seen.has(item.id)) add(`/${c}/${i}/id`, `duplicate id "${item.id}"`);
 			seen.add(item.id);
 		});
@@ -68,6 +68,8 @@ function semanticIssues(trace: WorkTrace): ValidationIssue[] {
 		if (s.endMs !== undefined && !(s.endMs > s.startMs)) add(`${p}/endMs`, 'endMs must be > startMs');
 		if (s.startMs > until || (s.endMs ?? 0) > until)
 			add(p, `span "${s.id}" extends beyond observedUntilMs`);
+		if (s.workItemId !== undefined && !idx.workItems.has(s.workItemId))
+			add(`${p}/workItemId`, `unknown work item "${s.workItemId}"`);
 		if (s.worktreeId !== undefined && !idx.worktrees.has(s.worktreeId))
 			add(`${p}/worktreeId`, `unknown worktree "${s.worktreeId}"`);
 		if (s.kind === 'agent' && !idx.sessions.has(s.sessionId))
@@ -120,6 +122,27 @@ function semanticIssues(trace: WorkTrace): ValidationIssue[] {
 		if (!target) add(`/spans/${i}/resumesSpanId`, `unknown span "${s.resumesSpanId}"`);
 		else if (target.kind !== 'agent' || target.sessionId !== s.sessionId)
 			add(`/spans/${i}/resumesSpanId`, 'resumesSpanId must reference an agent span of the same session');
+	});
+
+	// 5. work items and handoff links
+	(trace.workItems ?? []).forEach((w, i) => {
+		if (w.parentId === undefined) return;
+		if (!idx.workItems.has(w.parentId)) return add(`/workItems/${i}/parentId`, `unknown work item "${w.parentId}"`);
+		const seen = new Set<string>([w.id]);
+		for (let cur = idx.workItems.get(w.parentId); cur; cur = cur.parentId ? idx.workItems.get(cur.parentId) : undefined) {
+			if (seen.has(cur.id)) return add(`/workItems/${i}/parentId`, `work item parent cycle through "${cur.id}"`);
+			seen.add(cur.id);
+		}
+	});
+	(trace.links ?? []).forEach((l, i) => {
+		const p = `/links/${i}`;
+		const from = idx.spans.get(l.fromSpanId);
+		const to = idx.spans.get(l.toSpanId);
+		if (!from) add(`${p}/fromSpanId`, `unknown span "${l.fromSpanId}"`);
+		if (!to) add(`${p}/toSpanId`, `unknown span "${l.toSpanId}"`);
+		if (!from || !to) return;
+		if (from.id === to.id) add(p, 'a link cannot connect a span to itself');
+		else if (to.startMs < from.startMs) add(p, `link target "${to.id}" starts before its source "${from.id}"`);
 	});
 
 	// 6. compaction anchors

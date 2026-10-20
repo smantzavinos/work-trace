@@ -44,6 +44,8 @@ interface SpanBase {
 	id: string;
 	parentId?: string;
 	worktreeId?: string;
+	/** work item this span serves; explicit, never inherited */
+	workItemId?: string;
 	label?: string;
 	startMs: number;
 	/** absent iff status === 'running' */
@@ -85,6 +87,24 @@ export interface CompactionEvent {
 
 export type WorkEvent = CompactionEvent;
 
+/** A unit of work (plan, feature, review cycle) grouping the spans that serve it. */
+export interface WorkItem {
+	id: string;
+	label: string;
+	parentId?: string;
+	attributes?: Attributes;
+}
+
+/** Handoff: `toSpanId` acts on the output of `fromSpanId`. Not parentage, not resume. */
+export interface WorkLink {
+	id: string;
+	fromSpanId: string;
+	toSpanId: string;
+	/** short relation shown on the arrow, e.g. "review", "fixes" */
+	kind?: string;
+	attributes?: Attributes;
+}
+
 export interface WorkTrace {
 	schemaVersion: 3;
 	trace: {
@@ -99,6 +119,10 @@ export interface WorkTrace {
 	agentSessions: AgentSession[];
 	spans: WorkSpan[];
 	events: WorkEvent[];
+	/** optional; absent = no work items recorded */
+	workItems?: WorkItem[];
+	/** optional handoffs between spans */
+	links?: WorkLink[];
 }
 
 export interface ValidationIssue {

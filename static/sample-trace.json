@@ -230,6 +230,7 @@
       "sessionId": "backend-session",
       "mode": "start",
       "label": "Implement backend",
+      "workItemId": "wi-backend",
       "startMs": 45000,
       "endMs": 144000,
       "status": "ok",
@@ -242,6 +243,7 @@
       "sessionId": "frontend-session",
       "mode": "start",
       "label": "Implement frontend",
+      "workItemId": "wi-frontend",
       "startMs": 55000,
       "endMs": 146000,
       "status": "ok",
@@ -326,6 +328,7 @@
       "sessionId": "review-session",
       "mode": "start",
       "label": "Review implementation",
+      "workItemId": "wi-backend",
       "startMs": 148000,
       "endMs": 185000,
       "status": "ok",
@@ -351,6 +354,7 @@
       "mode": "resume",
       "resumesSpanId": "backend-1",
       "label": "Apply review fixes",
+      "workItemId": "wi-backend",
       "startMs": 187000,
       "endMs": 214000,
       "status": "ok",
@@ -431,6 +435,36 @@
       "trigger": "unknown",
       "outcome": "unknown",
       "label": "Background compaction while session parked"
+    }
+  ],
+  "workItems": [
+    {
+      "id": "wi-backend",
+      "label": "Notifications backend"
+    },
+    {
+      "id": "wi-frontend",
+      "label": "Notifications UI"
+    }
+  ],
+  "links": [
+    {
+      "id": "link-review-backend",
+      "fromSpanId": "backend-1",
+      "toSpanId": "review-1",
+      "kind": "review"
+    },
+    {
+      "id": "link-review-frontend",
+      "fromSpanId": "frontend-1",
+      "toSpanId": "review-1",
+      "kind": "review"
+    },
+    {
+      "id": "link-fixes",
+      "fromSpanId": "review-1",
+      "toSpanId": "fix-1",
+      "kind": "fixes"
     }
   ]
 }

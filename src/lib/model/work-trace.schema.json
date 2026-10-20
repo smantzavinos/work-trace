@@ -82,6 +82,20 @@
       "items": {
         "$ref": "#/$defs/sessionEvent"
       }
+    },
+    "workItems": {
+      "type": "array",
+      "description": "Optional. Units of work (a plan, a feature, a review cycle) that group the spans serving them, possibly across sessions, agent types and callers.",
+      "items": {
+        "$ref": "#/$defs/workItem"
+      }
+    },
+    "links": {
+      "type": "array",
+      "description": "Optional. Handoffs: the target span acts on the output of the source span (e.g. a review of an implementation, fixes for a review). Independent of parentId and resumesSpanId.",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
     }
   },
   "$defs": {
@@ -184,6 +198,10 @@
         "worktreeId": {
           "$ref": "#/$defs/id",
           "description": "Optional primary Git worktree for the duration of this span. Absence is unknown, not inherited from its parent or prior session activation."
+        },
+        "workItemId": {
+          "$ref": "#/$defs/id",
+          "description": "Optional work item this span serves. Explicit only: not inherited by children or later runs of the session."
         }
       },
       "allOf": [
@@ -452,6 +470,56 @@
         },
         "ref": {
           "$ref": "#/$defs/gitRef"
+        }
+      }
+    },
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "parentId": {
+          "$ref": "#/$defs/id",
+          "description": "Optional enclosing work item."
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "fromSpanId",
+        "toSpanId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "fromSpanId": {
+          "$ref": "#/$defs/id"
+        },
+        "toSpanId": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Short free-form relation shown on the arrow, e.g. \"review\" or \"fixes\"."
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
         }
       }
     }
