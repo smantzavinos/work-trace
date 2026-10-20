@@ -4,6 +4,7 @@
 	import { computeLayout } from '../layout/compute-layout.js';
 	import { GEOM, MIN_DENSITY, fitPxPerMs, rowGeom, rowMap } from '../layout/geometry.js';
 	import { legendGroups } from '../layout/legend.js';
+	import { stepPosition, stepsOnlyCollapse } from '../layout/selection.js';
 	import DetailsPanel from './DetailsPanel.svelte';
 	import Legend from './Legend.svelte';
 	import TimelineSvg from './TimelineSvg.svelte';
@@ -110,6 +111,24 @@
 		if (highlightedWorktreeId === undefined) internalWtId = next;
 		onWorktreeSelect?.(next);
 	}
+	// "Steps only": collapse the internals of every work item step (spans tagged with a work
+	// item), leaving the flow of steps; toggling again restores just those (double-click still
+	// expands one step).
+	const hasWorkItems = $derived(scene.index.workItems.size > 0);
+	const stepsOnlyIds = $derived(stepsOnlyCollapse(scene.index));
+	const stepsOnly = $derived(stepsOnlyIds.length > 0 && stepsOnlyIds.every((id) => collapsed.has(id)));
+	function toggleStepsOnly() {
+		const next = new Set(collapsed);
+		for (const id of stepsOnlyIds) stepsOnly ? next.delete(id) : next.add(id);
+		collapsed = next;
+	}
+	/** Select and reveal the previous (-1) / next (+1) step of the selected span's work item. */
+	function stepNav(dir: -1 | 1) {
+		const pos = stepPosition(scene, selSpan);
+		const target = pos ? (dir < 0 ? pos.prevId : pos.nextId) : scene.workItems[0]?.stepIds[0];
+		if (target) navigate(target);
+	}
+
 	function toggleCollapse(id: string) {
 		const next = new Set(collapsed);
 		if (!next.delete(id)) next.add(id);
@@ -299,6 +318,8 @@
 		else if (e.key === '-') zoomCenter(1 / 1.5);
 		else if (e.key === '0') fitAll();
 		else if (e.key === '9') overview();
+		else if (e.key === '[') stepNav(-1);
+		else if (e.key === ']') stepNav(1);
 		else if (e.key === 'ArrowLeft' && e.altKey) {
 			// Alt+Arrow is browser Back/Forward on Windows/Linux; never let it leave the page.
 			e.preventDefault();
@@ -321,6 +342,20 @@
 				<button type="button" onclick={fitAll} aria-label="Fit time" title="Fit time, normal rows (0)" class="fit">Fit</button>
 				<button type="button" onclick={overview} aria-label="Overview" title="Whole trace on screen (9)" class="fit">Overview</button>
 			</div>
+			{#if hasWorkItems}
+				<div class="seg" role="group" aria-label="Work items">
+					<button type="button" onclick={() => stepNav(-1)} aria-label="Previous step" title="Previous step of the selected work item ([)">‹</button>
+					<button type="button" onclick={() => stepNav(1)} aria-label="Next step" title="Next step of the selected work item (])">›</button>
+					<button
+						type="button"
+						class="fit"
+						aria-pressed={stepsOnly}
+						onclick={toggleStepsOnly}
+						title="Collapse the internals of every work item step"
+						disabled={!stepsOnlyIds.length}>Steps only</button
+					>
+				</div>
+			{/if}
 		</div>
 		<div
 			class="chart"
@@ -448,6 +483,14 @@
 	.seg button.fit {
 		font-size: 12px;
 		font-weight: 500;
+	}
+	.seg button[aria-pressed='true'] {
+		background: #e8eefb;
+		color: #1f3f8f;
+	}
+	.seg button:disabled {
+		opacity: 0.45;
+		cursor: default;
 	}
 	.seg button:hover {
 		background: #f3f4f6;

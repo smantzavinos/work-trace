@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { barColor } from '../layout/colors.js';
+	import { barColor, workItemColor } from '../layout/colors.js';
 	import type { LayoutItem, TimelineScene } from '../layout/compute-layout.js';
 	import {
 		GEOM,
@@ -11,7 +11,7 @@
 		type Viewport
 	} from '../layout/geometry.js';
 	import { computeLegend } from '../layout/legend.js';
-	import { computeHighlight, descendantIds, spanLabel } from '../layout/selection.js';
+	import { computeHighlight, descendantIds, flowOf, spanLabel } from '../layout/selection.js';
 	import { domMeasure, measureText, type Measure } from '../layout/text.js';
 	import { formatElapsed } from '../layout/time.js';
 	import { formatRef, refAt } from '../model/indexes.js';
@@ -22,6 +22,7 @@
 	import SpanBar from './SpanBar.svelte';
 	import SvgLegend from './SvgLegend.svelte';
 	import TimeAxis from './TimeAxis.svelte';
+	import WorkItemBands from './WorkItemBands.svelte';
 	import WorktreeRegions from './WorktreeRegions.svelte';
 
 	interface Props {
@@ -101,6 +102,19 @@
 	const inHoverSession = (item: LayoutItem) =>
 		!!hoverSessionId && item.span.kind === 'agent' && item.span.sessionId === hoverSessionId;
 
+	// Work items: step numbers (items with several steps) and the flow under the pointer.
+	const steps = $derived.by(() => {
+		const ids = scene.workItems.map((w) => w.workItemId);
+		const m = new Map<string, { index: number; count: number; color: string }>();
+		for (const w of scene.workItems)
+			if (w.stepIds.length > 1) {
+				const color = workItemColor(ids, w.workItemId);
+				w.stepIds.forEach((id, k) => m.set(id, { index: k + 1, count: w.stepIds.length, color }));
+			}
+		return m;
+	});
+	const hoverFlow = $derived(flowOf(scene.index, hoverSpanId));
+
 	// Transient pointer hover over a region/chip: highlights like a click, without selecting.
 	let hoverWtId = $state<string | null>(null);
 	const hlWt = $derived(highlightedWorktreeId ?? (showWorktrees ? hoverWtId : null));
@@ -141,6 +155,14 @@
 	const highlight = $derived(
 		computeHighlight(scene.index, selectedSpanId, selectedEventId, eventAnchor)
 	);
+	const flowSpanIds = $derived(new Set([...highlight.flow.spanIds, ...hoverFlow.spanIds]));
+	const flowWorkItems = $derived(new Set([...highlight.flow.workItemIds, ...hoverFlow.workItemIds]));
+	/** bar outline colour for members of a focused flow (its steps and linked spans) */
+	function flowOutline(item: LayoutItem): string | undefined {
+		if (!flowSpanIds.has(item.id)) return undefined;
+		const w = item.span.workItemId;
+		return w !== undefined && flowWorkItems.has(w) ? workItemColor(scene.workItems.map((x) => x.workItemId), w) : '#1f2430';
+	}
 
 	// For each bar: the time before which its label may spill to the right (next bar in the
 	// same row, the end of its enclosing worktree region, or the start of a region that begins
@@ -181,7 +203,7 @@
 
 	function isDimmed(item: LayoutItem): boolean {
 		return highlight.active
-			? !highlight.lineage.has(item.id) && !highlight.session.has(item.id)
+			? !highlight.lineage.has(item.id) && !highlight.session.has(item.id) && !highlight.flow.members.has(item.id)
 			: !!hlWt && item.span.worktreeId !== hlWt;
 	}
 
@@ -220,7 +242,12 @@
 	}
 	const drawn = $derived.by(() => {
 		const keep = (i: LayoutItem) =>
-			i.id === selectedSpanId || highlight.lineage.has(i.id) || highlight.session.has(i.id) || inHoverSession(i);
+			i.id === selectedSpanId ||
+			highlight.lineage.has(i.id) ||
+			highlight.session.has(i.id) ||
+			inHoverSession(i) ||
+			steps.has(i.id) ||
+			flowSpanIds.has(i.id);
 		const byRow = new Map<number, LayoutItem[]>();
 		for (const i of visible) byRow.set(i.row, [...(byRow.get(i.row) ?? []), i]);
 		const singles: LayoutItem[] = [];
@@ -349,7 +376,19 @@
 			/>
 		{/if}
 
-		<Relationships {scene} {vp} {width} ys={rows.y} g={rows.g} {measure} {highlight} {showConnectors} {hoverSessionId} />
+		{#if scene.workItemBands.length}
+			<WorkItemBands
+				{scene}
+				{vp}
+				{width}
+				{rows}
+				{measure}
+				focused={flowWorkItems}
+				faded={highlight.active && !highlight.flow.workItemIds.size}
+			/>
+		{/if}
+
+		<Relationships {scene} {vp} {width} ys={rows.y} g={rows.g} {measure} {highlight} {showConnectors} {hoverSessionId} {flowSpanIds} {idPrefix} />
 
 		{#each bars as item (item.id)}
 			<SpanBar
@@ -364,6 +403,8 @@
 				selected={item.id === highlight.selectedId}
 				sameSession={highlight.session.has(item.id) || inHoverSession(item)}
 				run={runs.get(item.id)}
+				step={steps.get(item.id)}
+				flowOutline={item.id === highlight.selectedId ? undefined : flowOutline(item)}
 				dimmed={isDimmed(item)}
 				{interactive}
 				roomRight={roomRight(item)}

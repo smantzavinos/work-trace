@@ -26,6 +26,10 @@
 		roomRight?: number;
 		/** 1-based run number and run count of this span's agent session (agent spans only) */
 		run?: { index: number; count: number };
+		/** 1-based step number within its work item (work items with several steps only) */
+		step?: { index: number; count: number; color: string };
+		/** outline colour when the bar belongs to a focused flow (work item / handoffs) */
+		flowOutline?: string;
 		/** false in static exports: no roles, focus or pointer affordances */
 		interactive?: boolean;
 		onSelect?: (id: string) => void;
@@ -49,6 +53,8 @@
 		hiddenCount = 0,
 		roomRight = 0,
 		run,
+		step,
+		flowOutline,
 		interactive = true,
 		onSelect,
 		onToggle,
@@ -91,13 +97,22 @@
 	const fadeFrom = $derived(Math.max(0, Math.min(0.85, 1 - 56 / Math.max(w, 1))));
 
 	// ---- label placement ----
-	const runTag = $derived(multiRun && run ? `${isResume ? '↻ ' : ''}${run.index}/${run.count}` : '');
+
+	// Step badge: a small numbered disc in the work item's colour, drawn left of the label.
+	const BADGE = 15;
+	const showBadge = $derived(!!step && g.labels && w >= BADGE + 2 * PAD + 6);
+	// With a step badge the run number gives way (the chevron / notch and pause link still show
+	// the session's runs; the details panel has the numbers): bars carry one number, not two.
+	const runTag = $derived(
+		!multiRun || !run ? '' : showBadge ? (isResume ? '↻' : '') : `${isResume ? '↻ ' : ''}${run.index}/${run.count}`
+	);
 	const prefix = $derived([item.collapsed ? `▸ +${hiddenCount}` : '', runTag].filter(Boolean).join(' '));
 	const text = $derived(prefix ? `${prefix} ${label}` : label);
 	const weight = $derived(light ? 400 : 500);
 	const textW = $derived(measure(text, 12, weight));
 	const showBang = $derived(status === 'error' && w >= 34 && g.labels);
-	const textX = $derived(Math.max(x + (isResume ? cd : 0), 0) + PAD);
+	const badgeX = $derived(Math.max(x + (isResume ? cd : 0), 0) + 5);
+	const textX = $derived(Math.max(x + (isResume ? cd : 0), 0) + PAD + (showBadge ? BADGE + 1 : 0));
 	const clipRight = $derived(x + w - (showBang ? 24 : PAD) - (continues ? cd : 0));
 	const inner = $derived(clipRight - textX);
 	const OUT_GAP = 7;
@@ -146,7 +161,7 @@
 	);
 
 	const aria = $derived(
-		`${span.kind} ${label}, ${status}, ${formatSeconds(item.effectiveEndMs - item.startMs)}${multiRun && run ? `, run ${run.index} of ${run.count}` : ''}${isResume ? ', resumed' : ''}`
+		`${span.kind} ${label}, ${status}, ${formatSeconds(item.effectiveEndMs - item.startMs)}${multiRun && run ? `, run ${run.index} of ${run.count}` : ''}${isResume ? ', resumed' : ''}${step ? `, step ${step.index} of ${step.count}` : ''}`
 	);
 
 	function onKey(e: KeyboardEvent) {
@@ -197,6 +212,8 @@
 	{#if selected}
 		<rect x={x - 6} y={y - 6} width={w + 12} height={h + 12} rx={rx + 5} fill="none" stroke="#1f2430" stroke-opacity="0.12" stroke-width="4" />
 		<rect x={x - 2.5} y={y - 2.5} width={w + 5} height={h + 5} rx={rx + 2} fill="none" stroke="#1f2430" stroke-width="2" />
+	{:else if flowOutline}
+		<rect x={x - 2.5} y={y - 2.5} width={w + 5} height={h + 5} rx={rx + 2} fill="none" stroke={flowOutline} stroke-opacity="0.9" stroke-width="1.75" />
 	{:else if sameSession}
 		<rect x={x - 2.5} y={y - 2.5} width={w + 5} height={h + 5} rx={rx + 2} fill="none" stroke={ACCENT} stroke-opacity="0.85" stroke-width="1.5" />
 	{/if}
@@ -253,6 +270,11 @@
 		<text class="at-label at-label-out" class:at-label-light={light} x={x + w + OUT_GAP} y={y + h / 2 + 4.6} fill="#3a4252"
 			>{#if prefix && shownText.startsWith(prefix)}<tspan class="at-run-tag">{prefix}</tspan>{shownText.slice(prefix.length)}{:else}{shownText}{/if}</text
 		>
+	{/if}
+
+	{#if showBadge && step}
+		<circle class="at-step" cx={badgeX + BADGE / 2} cy={y + h / 2} r={BADGE / 2} fill="#ffffff" stroke={step.color} stroke-width="1.5" />
+		<text class="at-step-num" x={badgeX + BADGE / 2} y={y + h / 2 + 3.5} text-anchor="middle" fill={step.color}>{step.index}</text>
 	{/if}
 
 	{#if showBang}

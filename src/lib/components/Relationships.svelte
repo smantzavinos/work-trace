@@ -18,9 +18,25 @@
 		showConnectors?: boolean;
 		/** session under the pointer: its pause links are emphasized */
 		hoverSessionId?: string;
+		/** span ids of the focused flow(s) (selection / hover): their handoffs are emphasized */
+		flowSpanIds?: ReadonlySet<string>;
+		/** unique prefix for the arrowhead markers */
+		idPrefix?: string;
 	}
 
-	let { scene, vp, width, ys, g = rowGeom(1), measure = measureText, highlight, showConnectors = true, hoverSessionId }: Props = $props();
+	let {
+		scene,
+		vp,
+		width,
+		ys,
+		g = rowGeom(1),
+		measure = measureText,
+		highlight,
+		showConnectors = true,
+		hoverSessionId,
+		flowSpanIds,
+		idPrefix = 'at'
+	}: Props = $props();
 
 	const children = $derived(scene.items.filter((i) => i.visualParentId));
 	// Pause links between consecutive runs of a session are always drawn: they are what makes
@@ -47,6 +63,32 @@
 		});
 	});
 	const PAUSE = '#8b93a1';
+	const HANDOFF = '#4b5563';
+	const HANDOFF_STRONG = '#1f2430';
+	const IMPLICIT = '#9aa3b2';
+
+	// Handoff arrows: a straight arrow across the gap when both bars share a row with nothing
+	// between them; an arc over the row when something sits between; else a curve between rows.
+	const handoffs = $derived.by(() => {
+		const byRow = new Map<number, { startMs: number; endMs: number; id: string }[]>();
+		for (const i of scene.items) {
+			const list = byRow.get(i.row) ?? [];
+			list.push({ startMs: i.startMs, endMs: i.effectiveEndMs, id: i.id });
+			byRow.set(i.row, list);
+		}
+		return scene.handoffs.flatMap((h) => {
+			const from = scene.itemById.get(h.fromSpanId);
+			const to = scene.itemById.get(h.toSpanId);
+			if (!from || !to) return [];
+			const sameRow = from.row === to.row && from.effectiveEndMs <= to.startMs;
+			const clear =
+				sameRow &&
+				!(byRow.get(from.row) ?? []).some(
+					(o) => o.id !== from.id && o.id !== to.id && o.startMs < to.startMs && o.endMs > from.effectiveEndMs
+				);
+			return [{ key: `${h.fromSpanId}>${h.toSpanId}`, h, from, to, sameRow, clear }];
+		});
+	});
 	const H = $derived(g.barH);
 
 	/** Orthogonal elbow with small rounded corners: down/up from the parent, across, into the child. */
@@ -65,6 +107,15 @@
 </script>
 
 <g class="at-relationships" pointer-events="none">
+	{#if handoffs.length}
+		<defs>
+			{#each [['n', HANDOFF], ['s', HANDOFF_STRONG], ['i', IMPLICIT]] as [k, c] (k)}
+				<marker id="{idPrefix}-arrow-{k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto" markerUnits="userSpaceOnUse">
+					<path d="M0 0.5L8 4L0 7.5Z" fill={c} />
+				</marker>
+			{/each}
+		</defs>
+	{/if}
 	{#if showConnectors}
 		{#each children as child (child.id)}
 			{@const parent = scene.itemById.get(child.visualParentId!)}
@@ -94,6 +145,52 @@
 			{/if}
 		{/each}
 	{/if}
+	{#each handoffs as a (a.key)}
+		{@const strong = !!flowSpanIds?.has(a.from.id) && flowSpanIds.has(a.to.id)}
+		{@const faded = (highlight.active || !!flowSpanIds?.size) && !strong}
+		{@const k = strong ? 's' : a.h.implicit ? 'i' : 'n'}
+		{@const stroke = strong ? HANDOFF_STRONG : a.h.implicit ? IMPLICIT : HANDOFF}
+		{@const sw = strong ? 1.75 : a.h.implicit ? 1 : 1.25}
+		{@const dash = a.h.implicit ? '3 3' : undefined}
+		{@const x1 = timeToX(vp, a.from.effectiveEndMs)}
+		{@const x2 = timeToX(vp, a.to.startMs)}
+		{@const y1 = ys[a.from.row] + H / 2}
+		{@const y2 = ys[a.to.row] + H / 2}
+		{#if Math.max(x1, x2) >= -20 && Math.min(x1, x2) <= width + 20}
+			<g
+				class="at-handoff"
+				class:at-handoff-implicit={a.h.implicit}
+				data-handoff-from={a.h.fromSpanId}
+				data-handoff-to={a.h.toSpanId}
+				opacity={faded ? 0.35 : 1}
+			>
+				<title>{a.h.kind ? `${a.h.kind}: ` : a.h.implicit ? 'next step: ' : 'handoff: '}{a.from.span.label ?? a.from.id} → {a.to.span.label ?? a.to.id}</title>
+				{#if a.clear}
+					{#if x2 - x1 >= 9}
+						{@const tw = a.h.kind ? measure(a.h.kind, 10.5) + 10 : 0}
+						<path d="M{x1 + 1} {y1}H{x2 - 1}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+						{#if a.h.kind && g.labels && x2 - x1 >= tw + 22}
+							<rect x={(x1 + x2) / 2 - tw / 2 - 3} y={y1 - 7.5} width={tw} height="15" rx="3" fill="#ffffff" stroke={stroke} stroke-opacity="0.5" />
+							<text class="at-handoff-kind" x={(x1 + x2) / 2 - 3} y={y1 + 3.6} text-anchor="middle" fill={stroke}>{a.h.kind}</text>
+						{/if}
+					{/if}
+				{:else if a.sameRow}
+					<!-- same row, bars in between: an arc over the row -->
+					{@const top = ys[a.from.row] - 7}
+					<path d="M{x1 - 3} {ys[a.from.row]}C{x1 - 3} {top} {x2 + 3} {top} {x2 + 3} {ys[a.from.row]}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+				{:else if a.to.startMs < a.from.effectiveEndMs}
+					<!-- target starts while the source still runs: a vertical drop at the target's start -->
+					{@const down = a.to.row > a.from.row}
+					{@const sy = down ? ys[a.from.row] + H : ys[a.from.row]}
+					{@const ey = down ? ys[a.to.row] - 1 : ys[a.to.row] + H + 1}
+					<path d="M{x2 + 4} {sy}C{x2 + 4} {(sy + ey) / 2} {x2 + 4} {(sy + ey) / 2} {x2 + 4} {ey}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+				{:else}
+					{@const dx = Math.max(18, Math.abs(x2 - x1) / 2)}
+					<path d="M{x1 + 1} {y1}C{x1 + dx} {y1} {x2 - dx} {y2} {x2 - 1} {y2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+				{/if}
+			</g>
+		{/if}
+	{/each}
 	{#each resumes as r (r.key)}
 		{@const strong = !!r.session && (r.session === highlight.sessionId || r.session === hoverSessionId)}
 		{@const faded = highlight.active && !strong}

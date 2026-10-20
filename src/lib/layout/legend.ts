@@ -1,6 +1,6 @@
 // Legend model shared by the HTML legend and the one embedded in exported SVGs. Pure.
 // Only entries that actually occur in the scene are listed.
-import { agentTypeColor } from './colors.js';
+import { agentTypeColor, workItemColor } from './colors.js';
 import type { TimelineScene } from './compute-layout.js';
 import { formatRef, refAt } from '../model/indexes.js';
 import { measureText } from './text.js';
@@ -17,7 +17,10 @@ export type LegendKind =
 	| 'compaction'
 	| 'refswitch'
 	| 'base'
-	| 'worktree';
+	| 'worktree'
+	| 'workitem'
+	| 'handoff'
+	| 'step';
 
 export interface LegendEntry {
 	kind: LegendKind;
@@ -36,7 +39,7 @@ export interface LegendGroup {
 }
 
 /**
- * Legend rows in display order: Agents, Calls, Status, Sessions, Git. Empty groups are dropped,
+ * Legend rows in display order: Agents, Calls, Status, Sessions, Work, Git. Empty groups are dropped,
  * so a trace without e.g. errors or worktrees gets a shorter legend.
  */
 export function legendGroups(scene: TimelineScene, showWorktrees: boolean): LegendGroup[] {
@@ -63,6 +66,19 @@ export function legendGroups(scene: TimelineScene, showWorktrees: boolean): Lege
 	if (has((i) => i.span.kind === 'agent' && i.span.mode === 'resume'))
 		sessions.push({ kind: 'resume', text: 'paused, then resumed', note: '2/3 = run 2 of 3' });
 	if (scene.positionedEvents.length) sessions.push({ kind: 'compaction', text: 'context compaction' });
+
+	const work: LegendEntry[] = [];
+	const wiIds = scene.workItems.map((w) => w.workItemId);
+	for (const w of scene.workItems)
+		work.push({
+			kind: 'workitem',
+			text: w.label,
+			note: w.stepIds.length > 1 ? `${w.stepIds.length} steps` : undefined,
+			ref: w.workItemId,
+			color: workItemColor(wiIds, w.workItemId)
+		});
+	if (scene.workItems.some((w) => w.stepIds.length > 1)) work.push({ kind: 'step', text: 'step number' });
+	if (scene.handoffs.some((h) => !h.implicit)) work.push({ kind: 'handoff', text: 'handoff', note: 'labelled by kind' });
 
 	const git: LegendEntry[] = [];
 	if (showWorktrees) {
@@ -94,6 +110,7 @@ export function legendGroups(scene: TimelineScene, showWorktrees: boolean): Lege
 		{ title: 'Calls', entries: calls },
 		{ title: 'Status', entries: status },
 		{ title: 'Sessions', entries: sessions },
+		{ title: 'Work', entries: work },
 		{ title: 'Git', entries: git }
 	].filter((g) => g.entries.length > 0);
 }

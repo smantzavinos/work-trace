@@ -23,6 +23,15 @@ const PALETTE = [
 	'#586174' // slate
 ];
 
+/** Work item hues (bands, titles, step badges): distinct from the agent fills, used as tints. */
+const WORK_PALETTE = ['#c2410c', '#0e7490', '#7e22ce', '#4d7c0f', '#be185d', '#1d4ed8', '#a16207', '#0f766e'];
+
+/** Colour of a work item by its position in scene.workItems (first-step order). */
+export function workItemColor(workItemIds: readonly string[], id: string): string {
+	const i = workItemIds.indexOf(id);
+	return i < 0 ? '#586174' : WORK_PALETTE[i % WORK_PALETTE.length];
+}
+
 export const TOOL_COLOR: BarColor = { fill: '#f0f2f5', text: '#3a4252', border: '#d3d8e0', neutral: true };
 export const MODEL_COLOR: BarColor = { fill: '#f1eefa', text: '#483d82', border: '#d8d0f0', neutral: true };
 const FALLBACK: BarColor = { fill: '#6b7280', text: '#ffffff', neutral: false };

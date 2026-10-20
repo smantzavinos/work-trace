@@ -116,6 +116,8 @@ interface WorkTrace {
   agentSessions: AgentSession[];
   spans: WorkSpan[];
   events: WorkEvent[];
+  workItems?: WorkItem[];      // optional, see "Work items and handoff links"
+  links?: WorkLink[];          // optional handoffs between spans
 }
 
 interface Repository {
@@ -156,6 +158,7 @@ type WorkSpan = {
   id: string;
   parentId?: string;           // causal invoking span; absent for roots
   worktreeId?: string;         // primary checkout for this execution; not session-scoped
+  workItemId?: string;         // optional: the work item this span serves; never inherited
   kind: 'agent' | 'tool' | 'model';
   label?: string;              // optional per-execution display name
   startMs: number;
@@ -191,10 +194,35 @@ interface WorkEvent {
   attributes?: Attributes;
 }
 
+interface WorkItem {
+  id: string;
+  label: string;
+  parentId?: string;           // another work item (nesting; not rendered yet)
+  attributes?: Attributes;
+}
+
+interface WorkLink {
+  id: string;
+  fromSpanId: string;          // e.g. the implementation
+  toSpanId: string;            // e.g. its review; must not start before fromSpanId
+  kind?: string;               // free text shown on the arrow: "review", "fixes", ...
+  attributes?: Attributes;
+}
+
 type Attributes = Record<string, string | number | boolean | null>;
 ```
 
 The top-level object is named `trace` instead of `session` to avoid confusing the overall recorded timeline with an individual persistent agent session. Version **3** adds workspace records and is a breaking change from v2. Do not silently parse v1/v2 as v3; a future importer can offer an explicit migration which adds empty workspace arrays and leaves assignments unknown.
+
+### Work items and handoff links (optional)
+
+Parent/child and resume links say *who called whom* and *which runs are one session*; they do not say *which work a span serves* or *who acted on whose output*. A plan → review → fixes stream is often spread across sibling sessions and agent types. Three optional, additive fields record it (absent everywhere = the trace renders exactly as before):
+
+- `workItems: [{ id, label, parentId?, attributes? }]`: the units of work (a feature, a ticket, a plan step). `parentId` allows nesting; it is not rendered yet.
+- `spans[].workItemId`: the work item a span serves. Explicit and never inherited: an untagged child of a tagged span is not a member (it is still drawn inside its caller's step).
+- `links: [{ id, fromSpanId, toSpanId, kind?, attributes? }]`: explicit handoffs, e.g. `kind: "review"` from an implementation to its review, `kind: "fixes"` from the review to the fix run. `kind` is free text shown on the arrow. Links are independent of `parentId` and `resumesSpanId`.
+
+The producer must emit these; the viewer never infers work items or handoffs from labels or timing.
 
 ### Representative JSON (excerpt)
 
@@ -252,7 +280,8 @@ See `sample-trace.json` for a richer, full three-plus-level example including co
 6. For a compaction with `spanId`, its timestamp and any `endMs` must lie within that agent span's observed lifetime; the `sessionId` must match. If no `spanId` is supplied, find an execution of the session active at `atMs` as an **inferred visual anchor only**. If none exists, keep the event in a fallback events strip/details panel; never fabricate an execution span.
 7. For compaction token metrics, both counts are optional nonnegative integers. Do not require `tokensAfter <= tokensBefore`: accounting conventions can differ. Never infer tokens or a successful compaction from a label.
 8. Validate Git cross-references and timestamp ranges. For each worktree, sort ref intervals by `(startMs, id)`; reject overlaps, allow boundary-touching intervals and unknown gaps. Resolve branch/ref at time `t` by interval membership only. Do not infer a missing worktree from parent/resume, or a missing branch from preceding intervals.
-9. Preserve input source and stable IDs; layout, grouping, and filters are derived views, never destructive transformations of the JSON.
+9. Work items and links: unique ids; `spans[].workItemId` and `workItems[].parentId` must resolve; no work item parent cycles; link endpoints must resolve, differ, and the target must not start before the source.
+10. Preserve input source and stable IDs; layout, grouping, and filters are derived views, never destructive transformations of the JSON.
 
 ## 6. Visual specification
 
@@ -295,9 +324,22 @@ Bar fill continues to encode agent type; worktree identity is carried by the ove
 
 **Compaction:** a diamond/chevron marker (`◆`) positioned at event `atMs` on the matching agent bar. For known duration, draw a subtle overlay from `atMs` to `endMs` in addition to the marker. Marker click opens event details and associated session; visually distinguish failure. If event has no associated active span, show a compact event-strip marker aligned with the global time axis and indicate that it is not attached to an active run. Events are annotations; they do **not** occupy agent execution lanes.
 
+### Work items and handoffs
+
+A **step** of a work item is a visible span tagged with it that has no visible ancestor tagged with the same item; steps are numbered in start order.
+
+- **Bands:** consecutive steps of one work item that share a row, with nothing else between them in that row, sit on one soft tinted pill in the work item's colour (layout guarantees no other bar is inside it; see §7). A work item split across rows gets one band per row. The band's title (`Notifications backend · 3 steps`, later bands `(cont.)`) sits on its own line just above the bars, inside any worktree box, and sticks to the left edge while the band is scrolled partly out of view. Titles are hidden below label density.
+- **Step badges:** work items with two or more steps number their steps with a small disc in the work item's colour before the label. On a stepped bar the run tag shortens to `↻` (the run edges and pause link still show the session).
+- **Handoff arrows:** each explicit link is a solid dark arrow from the source's end to the target's start, mapped to the nearest visible ancestor when an endpoint is hidden or collapsed. Straight with a `kind` pill when both bars share a clear row, an arc over the row when something sits between, otherwise a curve across rows. Consecutive steps without an explicit link get a faint dashed arrow. Dotted grey stays reserved for pauses.
+- **Focus:** hovering or selecting a span focuses its flow: its work item's spans plus spans linked to them (one hop), or for an untagged span its chain of links. Their bars are outlined in the work item colour, their arrows and band are emphasized, and with a selection everything outside the flow, the lineage and the session dims.
+
+Limitation: only siblings (same visible caller) can share a row, so steps run by different callers stay on different rows, connected by arrows.
+
 ### Selection and details
 
 On selecting a bar, show span ID, label, role, session ID, call mode, invocation parent, ancestor path, previous/next session activation, start/end/duration, status, direct children, compactions during the run, and attributes. Show the selected invocation's worktree, repository, optional path, and checked-out ref at invocation start and relevant ref transitions, or `Unknown` when not recorded. Highlight the selected causal ancestry and session-continuity links. Distinct sessions with the same type must remain easy to disambiguate.
+
+When the span is (inside) a work item step or has links, a **Work item** section shows the item, `step k of n` with previous/next buttons, the numbered step list, and incoming/outgoing handoffs with their kind.
 
 On selecting compaction, show session ID, anchor run if known, timestamp/duration, trigger/outcome/token counts when present, and attributes. Avoid implying an unknown token count is zero.
 
@@ -334,6 +376,9 @@ computeLayout(trace, {
   totalLanes: number;
   worktreeRegions: Array<{ worktreeId: string; rootSpanId: string; rowStart: number; rowEnd: number; startMs: number; endMs: number; depth: number }>;
   resumeEdges: Array<{ fromSpanId: string; toSpanId: string }>;
+  workItems: Array<{ workItemId: string; label: string; stepIds: string[] }>;
+  workItemBands: Array<{ workItemId: string; row: number; startMs: number; endMs: number; stepIds: string[]; first: boolean }>;
+  handoffs: Array<{ fromSpanId: string; toSpanId: string; kind?: string; implicit: boolean }>;
   positionedEvents: Array<{
     eventId: string;
     anchorSpanId?: string;
@@ -346,34 +391,38 @@ computeLayout(trace, {
 2. Build the causal parent forest **using `parentId` only**. Calculate canonical depth and descendants. Do *not* treat `resumesSpanId` as a parent.
 3. Determine visible bars: hiding tool/model spans should reparent their children **visually** to the nearest visible ancestor. Collapse hides only causal descendants of the collapsed span; it must **not** automatically hide a later resume elsewhere in the tree. For hidden agent types, hide their bars and reattach descendants visually as above.
 4. Determine visible parent/depth for each remaining bar. Sort by `(startMs ASC, visibleDepth ASC, id lexicographic ASC)` so parents precede descendants at equal timestamps.
-5. Subtree packing: pack each visible subtree as a block (its bar on row 0, children placed below at the lowest non-colliding offset, in start order). A child subtree in a different worktree from its owner is placed as a solid rectangle so its worktree box stays clean. A resumed sibling run takes its previous run's offset when the run and the pause gap are free there. Rows are then absolute offsets from the parent's row.
+5. Subtree packing: pack each visible subtree as a block (its bar on row 0, children placed below at the lowest non-colliding offset, in start order). A child subtree in a different worktree from its owner is placed as a solid rectangle so its worktree box stays clean. **Flow rows:** a bar's *flow predecessor* is, among its visible siblings, a link source in its own work item, else any link source, else the previous step of its work item, taking in each tier the candidate that ended last before the bar started (overlapping work has none). A bar takes its flow predecessor's offset when the bar and the gap since the predecessor ended are free there; while a successor is pending, its gap and shape on the predecessor's row are reserved, and other siblings avoid them. Failing that, a resumed sibling run takes its previous run's offset when the run and the pause gap are free there. Rows are then absolute offsets from the parent's row.
 6. Match events by explicit `spanId`, then (if absent) by unique session activation active at event time, otherwise mark as `event-strip`.
 7. Generate resume edges from `resumesSpanId`, but do not allocate lanes or enforce ancestry based on those edges. Compute link routing at render time from positioned bars.
-8. Derive worktree regions from the packed blocks (one per worktree switch; the base worktree and unknown assignments get none). Worktree overlay never rewrites `parentId` or `resumesSpanId`.
-9. Compute the checked-out ref at each relevant timestamp by intersecting the worktree's ref intervals; create tick markers for ref boundaries that cross a span. No worktree ref interval means unknown, and no span worktree assignment means unassigned.
-10. Recompute positions after visibility/collapse changes, or when loading a different snapshot, but **do not recompute on zoom/pan**.
+8. Derive work item steps, bands (consecutive same-row steps with nothing between) and handoffs (explicit links mapped to visible bars, deduplicated per pair, plus implicit arrows between consecutive steps without one).
+9. Derive worktree regions from the packed blocks (one per worktree switch; the base worktree and unknown assignments get none). Worktree overlay never rewrites `parentId` or `resumesSpanId`.
+10. Compute the checked-out ref at each relevant timestamp by intersecting the worktree's ref intervals; create tick markers for ref boundaries that cross a span. No worktree ref interval means unknown, and no span worktree assignment means unassigned.
+11. Recompute positions after visibility/collapse changes, or when loading a different snapshot, but **do not recompute on zoom/pan**.
 
-This greedy layout is intentionally not globally optimal; it maximizes simplicity and determinism while packing non-overlapping bars into reusable lanes. Measured with `pnpm stress-trace` (7,710 spans, 183 sessions, 21 worktrees): layout ≈ 8 ms with agents only, ≈ 26 ms with every call visible. `pnpm check:layout` asserts the invariants (no overlap, children below parents, clean worktree boxes, resumed rows, determinism under shuffle, boxes contain their bars at every density) on the sample and 2,000 fuzzed traces. Complexity is approximately `O(N * numberOfLanes)` and can be optimized later without changing the data contract.
+This greedy layout is intentionally not globally optimal; it maximizes simplicity and determinism while packing non-overlapping bars into reusable lanes. Measured with `pnpm stress-trace` (7,710 spans, 183 sessions, 21 worktrees): layout ≈ 8 ms with agents only, ≈ 26 ms with every call visible. `pnpm check:layout` asserts the invariants (no overlap, children below parents, clean worktree boxes, flow and resumed rows, bands holding only their steps, determinism under shuffle, boxes contain their bars at every density) on the sample and 2,000 fuzzed traces with work items and links. Complexity is approximately `O(N * numberOfLanes)` and can be optimized later without changing the data contract.
 
 ### Renderer layers, back-to-front
 
 1. Background, ruler/grid, optional fallback event strip, and worktree overlay boxes (chips are drawn in a top layer so bars never cover them).
-2. Faint causal links for visible spans (possibly selection-only when crowded).
-3. Session resume links (selected lineage only by default).
-4. Time bars, worktree badges/accents, Git ref boundary ticks, and status accents.
-5. Compaction/event markers and accessible hit areas.
-6. Selected-lineage overlays and tooltips (HTML overlay acceptable).
+2. Work item bands and their titles.
+3. Faint causal links for visible spans (possibly selection-only when crowded).
+4. Handoff arrows and session resume links.
+5. Time bars, step badges, Git ref boundary ticks, and status accents.
+6. Compaction/event markers and accessible hit areas.
+7. Selected-lineage overlays and tooltips (HTML overlay acceptable).
 
 Use stable keyed DOM elements (`data-span-id`, `data-event-id`) to make interactions/test assertions unambiguous.
 
 ## 8. UI interactions
 
-Toolbar: **Open JSON**, **Export SVG**, **Fit time**, **Overview**, zoom −/+, Show Tools, Show Model Calls, Show Connectors, Show Worktrees; worktree and base entries in the legend act as highlight toggles.
+Toolbar: **Open JSON**, **Export SVG**, **Fit time**, **Overview**, zoom −/+, previous/next step and **Steps only** (when the trace has work items), Show Tools, Show Model Calls, Show Connectors, Show Worktrees; worktree and base entries in the legend act as highlight toggles.
 
 - **Zoom:** Ctrl/⌘+wheel or pinch zooms at the pointer; Shift+wheel or horizontal wheel pans; `+`/`−`/`0`. Zooming in goes to at least 200 px/s. Zooming **out past Fit** compacts rows instead (density, down to 0.15: shorter bars, then no chips, then no labels); zooming in restores density before time. **Overview** (`9`) fits time and picks the largest density at which every row fits the visible height. Wheel input is coalesced to one update per animation frame.
 
 - Click worktree badge or group header: highlight/filter that worktree; selection details show repository, worktree identity, branch at time, and transitions. A resumed session may move between worktrees.
 - Click bar: select and inspect. Esc: clear selection. Double-click bar: collapse its causal descendants.
+- `[` / `]` (or ‹ › in the toolbar and details panel): select and reveal the previous/next step of the selected span's work item; with nothing selected, `]` goes to the first step.
+- **Steps only:** collapses every work item span that has children, leaving the flow of steps; toggle again to restore them (double-click still expands one step). `ExportOptions.compactWorkItems` does the same for exports.
 - Click compaction marker: inspect compaction. Hover reveals short duration/metrics summary.
 - Click previous/next activation in details: select it and pan to it; *do not* infer it has the same causal parent.
 - Zoom anchored at pointer; drag empty background to pan. Provide keyboard/toolbar equivalents. Vertical scroll for many simultaneous lanes.

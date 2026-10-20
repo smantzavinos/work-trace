@@ -12,7 +12,10 @@ export const SVG_CSS = `
 .at-label{font-size:12px;font-weight:500;pointer-events:none;user-select:none}
 .at-label-light{font-weight:400}
 .at-pause{font-size:10.5px;font-variant-numeric:tabular-nums;user-select:none}
+.at-handoff-kind{font-size:10.5px;font-weight:500;user-select:none}
+.at-work-title{font-size:10.5px;font-weight:600;letter-spacing:0.01em;user-select:none}
 .at-run-tag{opacity:.78;font-variant-numeric:tabular-nums}
+.at-step-num{font-size:9.5px;font-weight:700;font-variant-numeric:tabular-nums;user-select:none}
 .at-glyph{font-size:10px;font-weight:700;pointer-events:none;user-select:none}
 .at-tick-label{fill:#6b7280;font-size:11px;font-variant-numeric:tabular-nums;user-select:none}
 .at-small{fill:#8a919e;font-size:10.5px;user-select:none}

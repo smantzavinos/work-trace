@@ -3,7 +3,7 @@
 	import { ancestorsOf, formatRef, refAt } from '../model/indexes.js';
 	import type { Attributes, WorkSpan, GitRef } from '../model/types.js';
 	import { formatSeconds } from '../layout/time.js';
-	import { sessionIdOf, spanLabel } from '../layout/selection.js';
+	import { sessionIdOf, spanLabel, stepPosition } from '../layout/selection.js';
 
 	interface Props {
 		scene: TimelineScene;
@@ -85,6 +85,18 @@
 	});
 
 	const attrs = (a: Attributes | undefined) => Object.entries(a ?? {});
+	// Work item and handoffs of the selected span (raw links: hidden endpoints still listed).
+	const work = $derived.by(() => {
+		if (!span) return undefined;
+		const pos = stepPosition(scene, span.id);
+		const wiId = span.workItemId ?? pos?.workItem.workItemId;
+		const item = wiId ? index.workItems.get(wiId) : undefined;
+		const linkSpan = (id: string) => index.spans.get(id);
+		const incoming = index.links.filter((l) => l.toSpanId === span.id);
+		const outgoing = index.links.filter((l) => l.fromSpanId === span.id);
+		if (!item && !incoming.length && !outgoing.length) return undefined;
+		return { pos, item, incoming, outgoing, linkSpan, isStep: pos?.workItem.stepIds[pos.index] === span.id };
+	});
 	const refText = (r: GitRef | undefined) => formatRef(r);
 	const dash = (n: number | undefined) => (n === undefined ? '—' : String(n));
 	const STATUS: Record<string, string> = { ok: '#2f9e6e', error: '#d92d3a', cancelled: '#8b93a1', running: '#2f5fd0' };
@@ -121,6 +133,61 @@
 				<code class="id">{span.id}</code>
 			</div>
 		</header>
+		{#if work}
+			<section class="work">
+				<h4>Work item</h4>
+				<dl>
+					{#if work.item}
+						<dt>Item</dt>
+						<dd>{work.item.label} <code class="id">{work.item.id}</code></dd>
+					{/if}
+					{#if work.pos}
+						{@const steps = work.pos.workItem.stepIds}
+						<dt>Step</dt>
+						<dd>
+							{work.pos.index + 1} of {steps.length}{work.isStep ? '' : ' (inside it)'}
+							<span class="step-nav">
+								<button type="button" class="mini" disabled={!work.pos.prevId} onclick={() => work.pos?.prevId && onNavigate(work.pos.prevId)} aria-label="Previous step" title="Previous step ([)">‹</button>
+								<button type="button" class="mini" disabled={!work.pos.nextId} onclick={() => work.pos?.nextId && onNavigate(work.pos.nextId)} aria-label="Next step" title="Next step (])">›</button>
+							</span>
+						</dd>
+						{#if steps.length > 1}
+							<dt>Steps</dt>
+							<dd>
+								<ol class="steps">
+									{#each steps as id, k (id)}
+										{@const s = index.spans.get(id)}
+										{#if s}
+											<li class:current={k === work.pos.index}>
+												{#if k === work.pos.index && work.isStep}<strong>{spanLabel(index, s)}</strong>{:else}{@render spanLink(s)}{/if}
+											</li>
+										{/if}
+									{/each}
+								</ol>
+							</dd>
+						{/if}
+					{/if}
+					{#if work.incoming.length}
+						<dt>From</dt>
+						<dd>
+							{#each work.incoming as l (l.id)}
+								{@const s = work.linkSpan(l.fromSpanId)}
+								<div>{#if l.kind}<span class="kind">{l.kind}</span> {/if}{#if s}{@render spanLink(s)}{/if}</div>
+							{/each}
+						</dd>
+					{/if}
+					{#if work.outgoing.length}
+						<dt>To</dt>
+						<dd>
+							{#each work.outgoing as l (l.id)}
+								{@const s = work.linkSpan(l.toSpanId)}
+								<div>{#if l.kind}<span class="kind">{l.kind}</span> {/if}{#if s}{@render spanLink(s)}{/if}</div>
+							{/each}
+						</dd>
+					{/if}
+				</dl>
+			</section>
+		{/if}
 		<section>
 			<h4>Timing</h4>
 			<dl>
@@ -356,6 +423,37 @@
 	}
 	.muted {
 		color: #6b7280;
+	}
+	.steps {
+		margin: 0;
+		padding-left: 1.3em;
+	}
+	.steps li.current::marker {
+		font-weight: 700;
+	}
+	.step-nav {
+		margin-left: 6px;
+		white-space: nowrap;
+	}
+	.mini {
+		font: inherit;
+		line-height: 1;
+		padding: 1px 7px 2px;
+		border: 1px solid #d3d8e0;
+		border-radius: 5px;
+		background: #ffffff;
+		cursor: pointer;
+	}
+	.mini:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.kind {
+		font-size: 11px;
+		color: #4b5563;
+		background: #f0f2f5;
+		border-radius: 4px;
+		padding: 0 5px;
 	}
 	.sepc {
 		margin: 0 5px;

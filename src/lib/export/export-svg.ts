@@ -5,6 +5,8 @@ import { flushSync, mount, unmount } from 'svelte';
 import TimelineSvg from '../components/TimelineSvg.svelte';
 import { computeLayout } from '../layout/compute-layout.js';
 import { fitPxPerMs } from '../layout/geometry.js';
+import { stepsOnlyCollapse } from '../layout/selection.js';
+import { buildIndex } from '../model/indexes.js';
 import type { WorkTrace } from '../model/types.js';
 
 export interface ExportOptions {
@@ -17,6 +19,8 @@ export interface ExportOptions {
 	/** Draw worktree regions. Default true. */
 	showWorktrees?: boolean;
 	collapsedSpanIds?: ReadonlySet<string> | readonly string[];
+	/** "Steps only": also collapse every work item span that has children. Default false. */
+	compactWorkItems?: boolean;
 	hiddenAgentTypes?: ReadonlySet<string> | readonly string[];
 	/** Emphasize this worktree (region and bars) and dim the rest. */
 	highlightedWorktreeId?: string | null;
@@ -38,7 +42,10 @@ export function exportTimelineSvg(trace: WorkTrace, options: ExportOptions = {})
 	const scene = computeLayout(trace, {
 		showTools: options.showTools ?? false,
 		showModelCalls: options.showModelCalls ?? false,
-		collapsedSpanIds: new Set(options.collapsedSpanIds ?? []),
+		collapsedSpanIds: new Set([
+			...(options.collapsedSpanIds ?? []),
+			...(options.compactWorkItems ? stepsOnlyCollapse(buildIndex(trace)) : [])
+		]),
 		hiddenAgentTypes: new Set(options.hiddenAgentTypes ?? [])
 	});
 	const target = document.createElement('div');

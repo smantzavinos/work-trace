@@ -27,6 +27,13 @@ export const REGION = {
 	radius: 6
 } as const;
 
+/** Work item band metrics: a tinted pill around the band's row, its title just above the bars. */
+export const BAND = {
+	pad: 3,
+	/** title line above a band row (only while labels are shown) */
+	titleH: 15
+} as const;
+
 /**
  * Row metrics at a vertical density (1 = normal). Zooming out past "fit" lowers the density:
  * rows get shorter so large traces fit on screen, and detail drops out in steps: labels first
@@ -45,6 +52,8 @@ export interface RowGeom {
 	regionPadStep: number;
 	regionPadTopExtra: number;
 	chipH: number;
+	/** work item band title line above band rows (0 = titles hidden) */
+	bandTitleH: number;
 }
 
 export const MIN_DENSITY = 0.15;
@@ -67,7 +76,8 @@ export function rowGeom(density = 1): RowGeom {
 		regionPad: Math.max(1.5, REGION.pad * d),
 		regionPadStep: REGION.padStep * d,
 		regionPadTopExtra: chips ? REGION.padTopExtra : 0,
-		chipH: chips ? REGION.chipH : 0
+		chipH: chips ? REGION.chipH : 0,
+		bandTitleH: d >= LABEL_DENSITY ? BAND.titleH : 0
 	};
 }
 
@@ -130,6 +140,8 @@ export interface RowMap {
 	/** per region: the nearest region before / after it in time that shares rows (or -1) */
 	prev: number[];
 	next: number[];
+	/** space reserved above each row for work item band titles (inside any region box) */
+	bandTop: number[];
 	/** row metrics this map was built with */
 	g: RowGeom;
 }
@@ -138,10 +150,13 @@ export interface RowMap {
  * Row -> y mapping. Rows are evenly pitched, except that the gap between two rows widens when
  * a worktree region ends above it (its bottom padding) and/or one starts below it (its top
  * padding plus the label chip hanging above the border), so region borders and chips never
- * touch neighbouring bars or each other. Depends only on the scene.
+ * touch neighbouring bars or each other. Rows carrying a work item band also get its title line.
+ * Depends only on the scene.
  */
 export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom = rowGeom(1)): RowMap {
 	const n = scene.totalRows;
+	const bandTop = new Array<number>(n + 1).fill(0);
+	for (const b of scene.workItemBands) bandTop[b.row] = g.bandTitleH;
 	const regions = showWorktrees ? scene.worktreeRegions : [];
 	const nesting = regionNesting(regions);
 	/** space needed above each row for the chips of regions starting there */
@@ -166,9 +181,10 @@ export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom 
 	let y = lanesTop(hasEventStrip(scene));
 	const ys: number[] = [];
 	for (let r = 0; r < n; r++) {
-		if (r === 0) y += Math.max(0, startNeed[0] + 4 * g.density - GEOM.lanePad);
+		if (r === 0) y += Math.max(0, startNeed[0] + bandTop[0] + 4 * g.density - GEOM.lanePad);
 		else {
-			const need = startNeed[r] + endNeed[r - 1] > 0 ? startNeed[r] + endNeed[r - 1] + 2 * g.density : 0;
+			const sum = startNeed[r] + endNeed[r - 1] + bandTop[r];
+			const need = sum > 0 ? sum + 2 * g.density : 0;
 			y += Math.max(gapBelow, need) - gapBelow;
 		}
 		ys.push(y);
@@ -176,7 +192,7 @@ export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom 
 	}
 	// y is now one pitch past the last row's top
 	const height = y - gapBelow + Math.max(GEOM.padBottom, (endNeed[n - 1] ?? 0) + 8);
-	return { y: ys, height, nesting, prev, next, g };
+	return { y: ys, height, nesting, prev, next, bandTop, g };
 }
 
 export interface RegionRect {
@@ -207,7 +223,7 @@ export function regionRects(scene: TimelineScene, rm: RowMap, vp: Viewport): Reg
 			index,
 			x1: x1 - padL,
 			x2: x2 + padR,
-			y1: rm.y[region.rowStart] - regionPadTop(rm.g, sub),
+			y1: rm.y[region.rowStart] - rm.bandTop[region.rowStart] - regionPadTop(rm.g, sub),
 			y2: rm.y[region.rowEnd] + rm.g.barH + pad
 		};
 	});

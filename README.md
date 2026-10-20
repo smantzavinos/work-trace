@@ -9,13 +9,14 @@ Today the data model covers AI agent and subagent execution (agent sessions, too
 - **Compaction** events are markers on the active run, or on an "Unattached events" strip.
 - **Git context**: repositories, worktrees, and time-dependent checked-out refs, shown as a **worktree overlay** on the single compact-lane layout. The root span's worktree is the unboxed *base checkout*. Every subtree that runs in a different worktree is packed as a clean rectangle and drawn as a light tinted box behind its bars, with a label chip (`Backend feature worktree · feat/notifications-backend`) on its top border. Hover or click a box or chip to highlight that worktree; toggle the overlay with `showWorktrees`.
 - **Scale & zoom**: Ctrl/⌘+wheel or pinch zooms at the pointer, Shift+wheel pans. Zooming out past *Fit time* compacts rows (labels and chips drop out as rows shrink); **Overview** (`9`) fits the whole trace on screen. Runs of tiny tool/model bars become clickable cluster strips. A 7.7k-span trace stays interactive.
+- **Work items and handoffs** (optional data: `workItems`, `spans[].workItemId`, `links`): a work item's steps stay on one row where layout allows, on a tinted band with a sticky title and numbered step badges; handoff links are solid arrows labelled with their kind (`review`, `fixes`). Hover or select a span to focus its whole flow; `[` / `]` step through it; **Steps only** collapses each step's internals.
 - **SVG export**: self-contained static SVG of the current filter/collapse/overlay state, fit to the full trace, with a header and legend.
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) (concepts, JSON contract v3, layout, rendering) and [`docs/DECISIONS.md`](docs/DECISIONS.md) (decision log). JSON Schema: [`src/lib/model/work-trace.schema.json`](src/lib/model/work-trace.schema.json).
 
-| Compact parallel lanes | Resumed session | Compaction details | Worktrees highlighted |
-|---|---|---|---|
-| ![a](docs/screenshots/a-compact-parallel-lanes.png) | ![b](docs/screenshots/b-resumed-session.png) | ![c](docs/screenshots/c-compaction-details.png) | ![d](docs/screenshots/d-worktrees-highlighted.png) |
+| Compact parallel lanes | Resumed session | Compaction details | Worktrees highlighted | Work item flow |
+|---|---|---|---|---|
+| ![a](docs/screenshots/a-compact-parallel-lanes.png) | ![b](docs/screenshots/b-resumed-session.png) | ![c](docs/screenshots/c-compaction-details.png) | ![d](docs/screenshots/d-worktrees-highlighted.png) | ![f](docs/screenshots/f-work-item-flow.png) |
 
 Sample export: [`docs/sample-export.svg`](docs/sample-export.svg).
 
@@ -76,7 +77,7 @@ import {
 {/if}
 ```
 
-Props: `trace`, `selectedSpanId` and `highlightedWorktreeId` (controlled when supplied), `onSpanSelect`, `onEventSelect`, `onWorktreeSelect`, `showTools`, `showModelCalls`, `showConnectors`, `showWorktrees` (default `true`), `hiddenAgentTypes`. `exportTimelineSvg` takes the same toggles as `ExportOptions`. Always validate untrusted JSON with `validateTrace` before passing it in.
+Props: `trace`, `selectedSpanId` and `highlightedWorktreeId` (controlled when supplied), `onSpanSelect`, `onEventSelect`, `onWorktreeSelect`, `showTools`, `showModelCalls`, `showConnectors`, `showWorktrees` (default `true`), `hiddenAgentTypes`. `exportTimelineSvg` takes the same toggles as `ExportOptions`, plus `compactWorkItems` (Steps only). Always validate untrusted JSON with `validateTrace` before passing it in.
 
 Non-Svelte pages can embed an exported SVG as a static image. There is no Web Component or mount API in the MVP.
 
@@ -114,6 +115,6 @@ Re-run on 2026-10-16 with an **empty pnpm store** (`--store-dir` in a fresh temp
 
 ## MVP status / not yet done
 
-Implemented and checked manually (headless-Chrome screenshots) plus the automated gates `pnpm check` (svelte-check + layout invariant script) and `pnpm build`. There is no unit-test framework. Deferred: agent-type filter UI, collapse-all, text search, a canvas layer for very dense call regions (a zoom step with 1–2k individually visible bars costs ~150–250 ms), and accessibility polish.
+Implemented and checked manually (headless-Chrome screenshots) plus the automated gates `pnpm check` (svelte-check + layout invariant script) and `pnpm build`. There is no unit-test framework. Deferred: rendering work item nesting (`workItems[].parentId`), agent-type filter UI, collapse-all, text search, a canvas layer for very dense call regions (a zoom step with 1–2k individually visible bars costs ~150–250 ms), and accessibility polish.
 
 Out of scope: live ingestion, editing, a backend, and npm publishing.
