@@ -500,7 +500,7 @@ One scene/geometry pipeline must drive both screen SVG and exported SVG. Export 
 In a second Svelte/SvelteKit repository:
 
 ```bash
-pnpm add github:YOUR_ORG/work-trace#v0.1.0
+pnpm add github:YOUR_ORG/work-trace#v0.2.0
 # Or, while editing two local checkouts:
 pnpm add ../work-trace
 ```

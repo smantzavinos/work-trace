@@ -86,7 +86,7 @@ Non-Svelte pages can embed an exported SVG as a static image. There is no Web Co
 The package is `private` and is never published. Pin a Git tag or commit:
 
 ```bash
-pnpm add "work-trace@git+https://github.com/YOUR_ORG/work-trace.git#v0.1.0"
+pnpm add "work-trace@git+https://github.com/YOUR_ORG/work-trace.git#v0.2.0"
 # or a local checkout:
 pnpm add "work-trace@git+file:///path/to/work-trace#<commit>"
 ```
