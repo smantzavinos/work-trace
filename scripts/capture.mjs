@@ -93,6 +93,12 @@ try {
 		// work item flow: select the review step (its work item's steps, handoffs and band focus)
 		await click('[data-span-id="review-1"]'); await settle();
 		await shot('docs/screenshots/f-work-item-flow.png', page);
+		// work items tab: hover the backend item to focus it in the chart
+		await ev(`[...document.querySelectorAll('[role=tab]')].find(b => b.textContent.startsWith('Work items')).click()`); await settle();
+		await ev(`document.querySelector('.work-items [data-work-item-id="wi-backend"]').dispatchEvent(new PointerEvent('pointerenter'))`); await settle();
+		await shot('docs/screenshots/g-work-items-list.png', page);
+		await ev(`document.querySelector('.work-items').dispatchEvent(new PointerEvent('pointerleave'))`);
+		await ev(`[...document.querySelectorAll('[role=tab]')].find(b => b.textContent === 'Details').click()`); await settle();
 		// worktree highlight: click the backend region's label chip (same path as hover/click on the region)
 		await ev(`document.querySelector('.work-timeline')?.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))`);
 		await click('[data-worktree-chip][data-worktree-id="wt-backend"]'); await settle();

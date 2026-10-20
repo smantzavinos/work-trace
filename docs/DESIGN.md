@@ -328,7 +328,7 @@ Bar fill continues to encode agent type; worktree identity is carried by the ove
 
 A **step** of a work item is a visible span tagged with it that has no visible ancestor tagged with the same item; steps are numbered in start order.
 
-- **Bands:** consecutive steps of one work item that share a row, with nothing else between them in that row, sit on one soft tinted pill in the work item's colour (layout guarantees no other bar is inside it; see §7). A work item split across rows gets one band per row. The band's title (`Notifications backend · 3 steps`, later bands `(cont.)`) sits on its own line just above the bars, inside any worktree box, and sticks to the left edge while the band is scrolled partly out of view. Titles are hidden below label density.
+- **Bands:** consecutive steps of one work item that share a row, with nothing else between them in that row, sit on one soft tinted pill in the work item's colour (layout guarantees no other bar is inside it; see §7). A work item split across rows gets one band per row. The band's title (`Notifications backend · 3 steps`, later bands `(cont.)`) sits on its own line just above the bars, inside any worktree box (row spacing reserves the title and the band's padding, with or without worktree boxes, so a band never touches neighbouring bars), and sticks to the left edge while the band is scrolled partly out of view. Titles are hidden below label density.
 - **Step badges:** work items with two or more steps number their steps with a small disc in the work item's colour before the label. On a stepped bar the run tag shortens to `↻` (the run edges and pause link still show the session).
 - **Handoff arrows:** each explicit link is a solid dark arrow from the source's end to the target's start, mapped to the nearest visible ancestor when an endpoint is hidden or collapsed. Straight with a `kind` pill when both bars share a clear row, an arc over the row when something sits between, otherwise a curve across rows. Consecutive steps without an explicit link get a faint dashed arrow. Dotted grey stays reserved for pauses.
 - **Focus:** hovering or selecting a span focuses its flow: its work item's spans plus spans linked to them (one hop), or for an untagged span its chain of links. Their bars are outlined in the work item colour, their arrows and band are emphasized, and with a selection everything outside the flow, the lineage and the session dims.
@@ -404,8 +404,8 @@ This greedy layout is intentionally not globally optimal; it maximizes simplicit
 ### Renderer layers, back-to-front
 
 1. Background, ruler/grid, optional fallback event strip, and worktree overlay boxes (chips are drawn in a top layer so bars never cover them).
-2. Work item bands and their titles.
-3. Faint causal links for visible spans (possibly selection-only when crowded).
+2. Faint causal links for visible spans (a link into a band step ends at the band's top edge).
+3. Work item bands and their titles, with an opaque tint, so causal links passing behind a band never cross its title or steps.
 4. Handoff arrows and session resume links.
 5. Time bars, step badges, Git ref boundary ticks, and status accents.
 6. Compaction/event markers and accessible hit areas.
@@ -421,6 +421,7 @@ Toolbar: **Open JSON**, **Export SVG**, **Fit time**, **Overview**, zoom −/+, 
 
 - Click worktree badge or group header: highlight/filter that worktree; selection details show repository, worktree identity, branch at time, and transitions. A resumed session may move between worktrees.
 - Click bar: select and inspect. Esc: clear selection. Double-click bar: collapse its causal descendants.
+- **Side panel:** collapsible (`d`). With work items in the trace it has two tabs: **Details** (the selection) and **Work items**, a list of every work item with its time range and numbered steps. Hovering an item focuses its flow in the chart and dims the rest; clicking a step selects and reveals it.
 - `[` / `]` (or ‹ › in the toolbar and details panel): select and reveal the previous/next step of the selected span's work item; with nothing selected, `]` goes to the first step.
 - **Steps only:** collapses every work item span that has children, leaving the flow of steps; toggle again to restore them (double-click still expands one step). `ExportOptions.compactWorkItems` does the same for exports.
 - Click compaction marker: inspect compaction. Hover reveals short duration/metrics summary.

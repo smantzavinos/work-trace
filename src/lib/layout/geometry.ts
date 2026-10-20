@@ -142,6 +142,8 @@ export interface RowMap {
 	next: number[];
 	/** space reserved above each row for work item band titles (inside any region box) */
 	bandTop: number[];
+	/** extra space above and below each band row for the band's padding (0 elsewhere) */
+	bandPad: number[];
 	/** row metrics this map was built with */
 	g: RowGeom;
 }
@@ -156,7 +158,11 @@ export interface RowMap {
 export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom = rowGeom(1)): RowMap {
 	const n = scene.totalRows;
 	const bandTop = new Array<number>(n + 1).fill(0);
-	for (const b of scene.workItemBands) bandTop[b.row] = g.bandTitleH;
+	const bandPad = new Array<number>(n + 1).fill(0);
+	for (const b of scene.workItemBands) {
+		bandTop[b.row] = g.bandTitleH;
+		bandPad[b.row] = BAND.pad + 1;
+	}
 	const regions = showWorktrees ? scene.worktreeRegions : [];
 	const nesting = regionNesting(regions);
 	/** space needed above each row for the chips of regions starting there */
@@ -181,9 +187,9 @@ export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom 
 	let y = lanesTop(hasEventStrip(scene));
 	const ys: number[] = [];
 	for (let r = 0; r < n; r++) {
-		if (r === 0) y += Math.max(0, startNeed[0] + bandTop[0] + 4 * g.density - GEOM.lanePad);
+		if (r === 0) y += Math.max(0, startNeed[0] + bandTop[0] + bandPad[0] + 4 * g.density - GEOM.lanePad);
 		else {
-			const sum = startNeed[r] + endNeed[r - 1] + bandTop[r];
+			const sum = startNeed[r] + endNeed[r - 1] + bandTop[r] + bandPad[r] + bandPad[r - 1];
 			const need = sum > 0 ? sum + 2 * g.density : 0;
 			y += Math.max(gapBelow, need) - gapBelow;
 		}
@@ -191,8 +197,8 @@ export function rowMap(scene: TimelineScene, showWorktrees: boolean, g: RowGeom 
 		y += g.rowPitch;
 	}
 	// y is now one pitch past the last row's top
-	const height = y - gapBelow + Math.max(GEOM.padBottom, (endNeed[n - 1] ?? 0) + 8);
-	return { y: ys, height, nesting, prev, next, bandTop, g };
+	const height = y - gapBelow + Math.max(GEOM.padBottom, (endNeed[n - 1] ?? 0) + (bandPad[n - 1] ?? 0) + 8);
+	return { y: ys, height, nesting, prev, next, bandTop, bandPad, g };
 }
 
 export interface RegionRect {
@@ -223,8 +229,8 @@ export function regionRects(scene: TimelineScene, rm: RowMap, vp: Viewport): Reg
 			index,
 			x1: x1 - padL,
 			x2: x2 + padR,
-			y1: rm.y[region.rowStart] - rm.bandTop[region.rowStart] - regionPadTop(rm.g, sub),
-			y2: rm.y[region.rowEnd] + rm.g.barH + pad
+			y1: rm.y[region.rowStart] - rm.bandTop[region.rowStart] - rm.bandPad[region.rowStart] - regionPadTop(rm.g, sub),
+			y2: rm.y[region.rowEnd] + rm.g.barH + rm.bandPad[region.rowEnd] + pad
 		};
 	});
 }

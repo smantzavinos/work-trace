@@ -2,7 +2,7 @@
 	// Work item bands: a soft tinted pill behind consecutive steps of one work item in one row
 	// (layout guarantees nothing else lies inside it), titled just above the bars. The title
 	// sticks to the left edge of the view while its band is scrolled partly out of view.
-	import { workItemColor } from '../layout/colors.js';
+	import { tintOnWhite, workItemColor } from '../layout/colors.js';
 	import type { TimelineScene, WorkItemBand } from '../layout/compute-layout.js';
 	import { BAND, timeToX, type RowMap, type Viewport } from '../layout/geometry.js';
 	import { measureText, type Measure } from '../layout/text.js';
@@ -75,8 +75,7 @@
 				width={Math.max(0, s.x2 - s.x1)}
 				height={s.y2 - s.y1}
 				rx={Math.min(8, (s.y2 - s.y1) / 2)}
-				fill={s.color}
-				fill-opacity={s.strong ? 0.16 : 0.08}
+				fill={tintOnWhite(s.color, s.strong ? 0.16 : 0.08)}
 				stroke={s.color}
 				stroke-opacity={s.strong ? 0.8 : 0.4}
 				stroke-width={s.strong ? 1.5 : 1}

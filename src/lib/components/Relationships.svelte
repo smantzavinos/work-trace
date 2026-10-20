@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ACCENT } from '../layout/colors.js';
 	import type { TimelineScene } from '../layout/compute-layout.js';
-	import { barWidth, rowGeom, timeToX, type RowGeom, type Viewport } from '../layout/geometry.js';
+	import { BAND, barWidth, rowGeom, timeToX, type RowGeom, type Viewport } from '../layout/geometry.js';
 	import { sessionIdOf, type Highlight } from '../layout/selection.js';
 	import { measureText, type Measure } from '../layout/text.js';
 	import { formatSeconds } from '../layout/time.js';
@@ -22,6 +22,10 @@
 		flowSpanIds?: ReadonlySet<string>;
 		/** unique prefix for the arrowhead markers */
 		idPrefix?: string;
+		/** title space above each row (RowMap.bandTop): connectors into a band step stop at the band's top */
+		bandTop?: readonly number[];
+		/** 'causal': caller connectors only (drawn below work item bands); 'links': handoffs and pauses only */
+		layer?: 'causal' | 'links' | 'all';
 	}
 
 	let {
@@ -35,8 +39,14 @@
 		showConnectors = true,
 		hoverSessionId,
 		flowSpanIds,
-		idPrefix = 'at'
+		idPrefix = 'at',
+		bandTop,
+		layer = 'all'
 	}: Props = $props();
+
+	const causal = $derived(layer !== 'links');
+	const links = $derived(layer !== 'causal');
+	const bandSteps = $derived(new Set(scene.workItemBands.flatMap((b) => b.stepIds)));
 
 	const children = $derived(scene.items.filter((i) => i.visualParentId));
 	// Pause links between consecutive runs of a session are always drawn: they are what makes
@@ -107,7 +117,7 @@
 </script>
 
 <g class="at-relationships" pointer-events="none">
-	{#if handoffs.length}
+	{#if links && handoffs.length}
 		<defs>
 			{#each [['n', HANDOFF], ['s', HANDOFF_STRONG], ['i', IMPLICIT]] as [k, c] (k)}
 				<marker id="{idPrefix}-arrow-{k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto" markerUnits="userSpaceOnUse">
@@ -116,7 +126,7 @@
 			{/each}
 		</defs>
 	{/if}
-	{#if showConnectors}
+	{#if causal && showConnectors}
 		{#each children as child (child.id)}
 			{@const parent = scene.itemById.get(child.visualParentId!)}
 			{#if parent}
@@ -128,7 +138,8 @@
 					{@const sx = Math.min(Math.max(cx, px + inset), px + pw - inset)}
 					{@const up = child.row <= parent.row}
 					{@const py = up ? ys[parent.row] : ys[parent.row] + H}
-					{@const cy = up ? ys[child.row] + H : ys[child.row]}
+					{@const intoBand = !up && bandSteps.has(child.id)}
+					{@const cy = up ? ys[child.row] + H : ys[child.row] - (intoBand ? (bandTop?.[child.row] ?? 0) + BAND.pad : 0)}
 					{@const mid = up ? cy + 6 : cy - 6}
 					{@const strong = highlight.lineage.has(child.id) && highlight.lineage.has(parent.id)}
 					<path
@@ -145,93 +156,95 @@
 			{/if}
 		{/each}
 	{/if}
-	{#each handoffs as a (a.key)}
-		{@const strong = !!flowSpanIds?.has(a.from.id) && flowSpanIds.has(a.to.id)}
-		{@const faded = (highlight.active || !!flowSpanIds?.size) && !strong}
-		{@const k = strong ? 's' : a.h.implicit ? 'i' : 'n'}
-		{@const stroke = strong ? HANDOFF_STRONG : a.h.implicit ? IMPLICIT : HANDOFF}
-		{@const sw = strong ? 1.75 : a.h.implicit ? 1 : 1.25}
-		{@const dash = a.h.implicit ? '3 3' : undefined}
-		{@const x1 = timeToX(vp, a.from.effectiveEndMs)}
-		{@const x2 = timeToX(vp, a.to.startMs)}
-		{@const y1 = ys[a.from.row] + H / 2}
-		{@const y2 = ys[a.to.row] + H / 2}
-		{#if Math.max(x1, x2) >= -20 && Math.min(x1, x2) <= width + 20}
+	{#if links}
+		{#each handoffs as a (a.key)}
+			{@const strong = !!flowSpanIds?.has(a.from.id) && flowSpanIds.has(a.to.id)}
+			{@const faded = (highlight.active || !!flowSpanIds?.size) && !strong}
+			{@const k = strong ? 's' : a.h.implicit ? 'i' : 'n'}
+			{@const stroke = strong ? HANDOFF_STRONG : a.h.implicit ? IMPLICIT : HANDOFF}
+			{@const sw = strong ? 1.75 : a.h.implicit ? 1 : 1.25}
+			{@const dash = a.h.implicit ? '3 3' : undefined}
+			{@const x1 = timeToX(vp, a.from.effectiveEndMs)}
+			{@const x2 = timeToX(vp, a.to.startMs)}
+			{@const y1 = ys[a.from.row] + H / 2}
+			{@const y2 = ys[a.to.row] + H / 2}
+			{#if Math.max(x1, x2) >= -20 && Math.min(x1, x2) <= width + 20}
+				<g
+					class="at-handoff"
+					class:at-handoff-implicit={a.h.implicit}
+					data-handoff-from={a.h.fromSpanId}
+					data-handoff-to={a.h.toSpanId}
+					opacity={faded ? 0.35 : 1}
+				>
+					<title>{a.h.kind ? `${a.h.kind}: ` : a.h.implicit ? 'next step: ' : 'handoff: '}{a.from.span.label ?? a.from.id} → {a.to.span.label ?? a.to.id}</title>
+					{#if a.clear}
+						{#if x2 - x1 >= 9}
+							{@const tw = a.h.kind ? measure(a.h.kind, 10.5) + 10 : 0}
+							<path d="M{x1 + 1} {y1}H{x2 - 1}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+							{#if a.h.kind && g.labels && x2 - x1 >= tw + 22}
+								<rect x={(x1 + x2) / 2 - tw / 2 - 3} y={y1 - 7.5} width={tw} height="15" rx="3" fill="#ffffff" stroke={stroke} stroke-opacity="0.5" />
+								<text class="at-handoff-kind" x={(x1 + x2) / 2 - 3} y={y1 + 3.6} text-anchor="middle" fill={stroke}>{a.h.kind}</text>
+							{/if}
+						{/if}
+					{:else if a.sameRow}
+						<!-- same row, bars in between: an arc over the row -->
+						{@const top = ys[a.from.row] - 7}
+						<path d="M{x1 - 3} {ys[a.from.row]}C{x1 - 3} {top} {x2 + 3} {top} {x2 + 3} {ys[a.from.row]}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+					{:else if a.to.startMs < a.from.effectiveEndMs}
+						<!-- target starts while the source still runs: a vertical drop at the target's start -->
+						{@const down = a.to.row > a.from.row}
+						{@const sy = down ? ys[a.from.row] + H : ys[a.from.row]}
+						{@const ey = down ? ys[a.to.row] - 1 : ys[a.to.row] + H + 1}
+						<path d="M{x2 + 4} {sy}C{x2 + 4} {(sy + ey) / 2} {x2 + 4} {(sy + ey) / 2} {x2 + 4} {ey}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+					{:else}
+						{@const dx = Math.max(18, Math.abs(x2 - x1) / 2)}
+						<path d="M{x1 + 1} {y1}C{x1 + dx} {y1} {x2 - dx} {y2} {x2 - 1} {y2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+					{/if}
+				</g>
+			{/if}
+		{/each}
+		{#each resumes as r (r.key)}
+			{@const strong = !!r.session && (r.session === highlight.sessionId || r.session === hoverSessionId)}
+			{@const faded = highlight.active && !strong}
+			{@const x1 = timeToX(vp, r.from.effectiveEndMs)}
+			{@const x2 = timeToX(vp, r.to.startMs)}
+			{@const y1 = ys[r.from.row]}
+			{@const y2 = ys[r.to.row]}
+			{@const stroke = strong ? ACCENT : PAUSE}
+			{@const sw = strong ? 1.75 : 1.25}
+			{@const pause = `paused ${formatSeconds(r.to.startMs - r.from.effectiveEndMs)}`}
 			<g
-				class="at-handoff"
-				class:at-handoff-implicit={a.h.implicit}
-				data-handoff-from={a.h.fromSpanId}
-				data-handoff-to={a.h.toSpanId}
+				class="at-resume"
+				data-resume-from={r.e.fromSpanId}
+				data-resume-to={r.e.toSpanId}
 				opacity={faded ? 0.35 : 1}
 			>
-				<title>{a.h.kind ? `${a.h.kind}: ` : a.h.implicit ? 'next step: ' : 'handoff: '}{a.from.span.label ?? a.from.id} → {a.to.span.label ?? a.to.id}</title>
-				{#if a.clear}
-					{#if x2 - x1 >= 9}
-						{@const tw = a.h.kind ? measure(a.h.kind, 10.5) + 10 : 0}
-						<path d="M{x1 + 1} {y1}H{x2 - 1}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
-						{#if a.h.kind && g.labels && x2 - x1 >= tw + 22}
-							<rect x={(x1 + x2) / 2 - tw / 2 - 3} y={y1 - 7.5} width={tw} height="15" rx="3" fill="#ffffff" stroke={stroke} stroke-opacity="0.5" />
-							<text class="at-handoff-kind" x={(x1 + x2) / 2 - 3} y={y1 + 3.6} text-anchor="middle" fill={stroke}>{a.h.kind}</text>
-						{/if}
+				<title>{pause}, then resumed</title>
+				{#if r.clear}
+					<!-- same row, nothing in between: a straight dotted pause line with its duration -->
+					{@const my = y1 + H / 2}
+					{@const tw = measure(pause, 10.5) + 10}
+					<path d="M{x1 + 2} {my}H{x2 - 2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray="1.5 3.5" stroke-linecap="round" />
+					{#if g.labels && x2 - x1 >= tw + 16}
+						<rect x={(x1 + x2) / 2 - tw / 2} y={my - 7.5} width={tw} height="15" rx="7.5" fill="#ffffff" stroke={stroke} stroke-opacity="0.35" />
+						<text class="at-pause" x={(x1 + x2) / 2} y={my + 3.6} text-anchor="middle" fill={strong ? ACCENT : '#5b6474'}>{pause}</text>
 					{/if}
-				{:else if a.sameRow}
-					<!-- same row, bars in between: an arc over the row -->
-					{@const top = ys[a.from.row] - 7}
-					<path d="M{x1 - 3} {ys[a.from.row]}C{x1 - 3} {top} {x2 + 3} {top} {x2 + 3} {ys[a.from.row]}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
-				{:else if a.to.startMs < a.from.effectiveEndMs}
-					<!-- target starts while the source still runs: a vertical drop at the target's start -->
-					{@const down = a.to.row > a.from.row}
-					{@const sy = down ? ys[a.from.row] + H : ys[a.from.row]}
-					{@const ey = down ? ys[a.to.row] - 1 : ys[a.to.row] + H + 1}
-					<path d="M{x2 + 4} {sy}C{x2 + 4} {(sy + ey) / 2} {x2 + 4} {(sy + ey) / 2} {x2 + 4} {ey}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+				{:else if r.sameRow}
+					<!-- same row with bars in between: a bracket through the gap above the row -->
+					{@const gy = y1 - 4}
+					<path d="M{x1 - 3} {y1 + 2}V{gy}H{x2 + 3}V{y1 + 2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray="1.5 3.5" stroke-linecap="round" stroke-linejoin="round" />
 				{:else}
-					{@const dx = Math.max(18, Math.abs(x2 - x1) / 2)}
-					<path d="M{x1 + 1} {y1}C{x1 + dx} {y1} {x2 - dx} {y2} {x2 - 1} {y2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray={dash} marker-end="url(#{idPrefix}-arrow-{k})" />
+					{@const dx = Math.max(24, Math.abs(x2 - x1) / 2)}
+					<path
+						d="M{x1} {y1 + H / 2}C{x1 + dx} {y1 + H / 2} {x2 - dx} {y2 + H / 2} {x2} {y2 + H / 2}"
+						fill="none"
+						{stroke}
+						stroke-width={sw}
+						stroke-dasharray="1.5 3.5"
+						stroke-linecap="round"
+					/>
 				{/if}
 			</g>
-		{/if}
-	{/each}
-	{#each resumes as r (r.key)}
-		{@const strong = !!r.session && (r.session === highlight.sessionId || r.session === hoverSessionId)}
-		{@const faded = highlight.active && !strong}
-		{@const x1 = timeToX(vp, r.from.effectiveEndMs)}
-		{@const x2 = timeToX(vp, r.to.startMs)}
-		{@const y1 = ys[r.from.row]}
-		{@const y2 = ys[r.to.row]}
-		{@const stroke = strong ? ACCENT : PAUSE}
-		{@const sw = strong ? 1.75 : 1.25}
-		{@const pause = `paused ${formatSeconds(r.to.startMs - r.from.effectiveEndMs)}`}
-		<g
-			class="at-resume"
-			data-resume-from={r.e.fromSpanId}
-			data-resume-to={r.e.toSpanId}
-			opacity={faded ? 0.35 : 1}
-		>
-			<title>{pause}, then resumed</title>
-			{#if r.clear}
-				<!-- same row, nothing in between: a straight dotted pause line with its duration -->
-				{@const my = y1 + H / 2}
-				{@const tw = measure(pause, 10.5) + 10}
-				<path d="M{x1 + 2} {my}H{x2 - 2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray="1.5 3.5" stroke-linecap="round" />
-				{#if g.labels && x2 - x1 >= tw + 16}
-					<rect x={(x1 + x2) / 2 - tw / 2} y={my - 7.5} width={tw} height="15" rx="7.5" fill="#ffffff" stroke={stroke} stroke-opacity="0.35" />
-					<text class="at-pause" x={(x1 + x2) / 2} y={my + 3.6} text-anchor="middle" fill={strong ? ACCENT : '#5b6474'}>{pause}</text>
-				{/if}
-			{:else if r.sameRow}
-				<!-- same row with bars in between: a bracket through the gap above the row -->
-				{@const gy = y1 - 4}
-				<path d="M{x1 - 3} {y1 + 2}V{gy}H{x2 + 3}V{y1 + 2}" fill="none" {stroke} stroke-width={sw} stroke-dasharray="1.5 3.5" stroke-linecap="round" stroke-linejoin="round" />
-			{:else}
-				{@const dx = Math.max(24, Math.abs(x2 - x1) / 2)}
-				<path
-					d="M{x1} {y1 + H / 2}C{x1 + dx} {y1 + H / 2} {x2 - dx} {y2 + H / 2} {x2} {y2 + H / 2}"
-					fill="none"
-					{stroke}
-					stroke-width={sw}
-					stroke-dasharray="1.5 3.5"
-					stroke-linecap="round"
-				/>
-			{/if}
-		</g>
-	{/each}
+		{/each}
+	{/if}
 </g>

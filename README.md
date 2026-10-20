@@ -9,14 +9,14 @@ Today the data model covers AI agent and subagent execution (agent sessions, too
 - **Compaction** events are markers on the active run, or on an "Unattached events" strip.
 - **Git context**: repositories, worktrees, and time-dependent checked-out refs, shown as a **worktree overlay** on the single compact-lane layout. The root span's worktree is the unboxed *base checkout*. Every subtree that runs in a different worktree is packed as a clean rectangle and drawn as a light tinted box behind its bars, with a label chip (`Backend feature worktree · feat/notifications-backend`) on its top border. Hover or click a box or chip to highlight that worktree; toggle the overlay with `showWorktrees`.
 - **Scale & zoom**: Ctrl/⌘+wheel or pinch zooms at the pointer, Shift+wheel pans. Zooming out past *Fit time* compacts rows (labels and chips drop out as rows shrink); **Overview** (`9`) fits the whole trace on screen. Runs of tiny tool/model bars become clickable cluster strips. A 7.7k-span trace stays interactive.
-- **Work items and handoffs** (optional data: `workItems`, `spans[].workItemId`, `links`): a work item's steps stay on one row where layout allows, on a tinted band with a sticky title and numbered step badges; handoff links are solid arrows labelled with their kind (`review`, `fixes`). Hover or select a span to focus its whole flow; `[` / `]` step through it; **Steps only** collapses each step's internals.
+- **Work items and handoffs** (optional data: `workItems`, `spans[].workItemId`, `links`): a work item's steps stay on one row where layout allows, on a tinted band with a sticky title and numbered step badges; handoff links are solid arrows labelled with their kind (`review`, `fixes`). Hover or select a span to focus its whole flow; `[` / `]` step through it; **Steps only** collapses each step's internals. A **Work items** tab in the side panel lists the items and their steps; hover one to see it in the chart.
 - **SVG export**: self-contained static SVG of the current filter/collapse/overlay state, fit to the full trace, with a header and legend.
 
 Design: [`docs/DESIGN.md`](docs/DESIGN.md) (concepts, JSON contract v3, layout, rendering) and [`docs/DECISIONS.md`](docs/DECISIONS.md) (decision log). JSON Schema: [`src/lib/model/work-trace.schema.json`](src/lib/model/work-trace.schema.json).
 
-| Compact parallel lanes | Resumed session | Compaction details | Worktrees highlighted | Work item flow |
-|---|---|---|---|---|
-| ![a](docs/screenshots/a-compact-parallel-lanes.png) | ![b](docs/screenshots/b-resumed-session.png) | ![c](docs/screenshots/c-compaction-details.png) | ![d](docs/screenshots/d-worktrees-highlighted.png) | ![f](docs/screenshots/f-work-item-flow.png) |
+| Compact parallel lanes | Resumed session | Compaction details | Worktrees highlighted | Work item flow | Work items list |
+|---|---|---|---|---|---|
+| ![a](docs/screenshots/a-compact-parallel-lanes.png) | ![b](docs/screenshots/b-resumed-session.png) | ![c](docs/screenshots/c-compaction-details.png) | ![d](docs/screenshots/d-worktrees-highlighted.png) | ![f](docs/screenshots/f-work-item-flow.png) | ![g](docs/screenshots/g-work-items-list.png) |
 
 Sample export: [`docs/sample-export.svg`](docs/sample-export.svg).
 

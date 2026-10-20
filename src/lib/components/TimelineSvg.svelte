@@ -40,6 +40,8 @@
 		/** Draw worktree regions (default true). */
 		showWorktrees?: boolean;
 		highlightedWorktreeId?: string | null;
+		/** work item focused from outside the chart (e.g. hovered in a list): its flow is shown, the rest dimmed */
+		focusWorkItemId?: string | null;
 		title?: string;
 		/** Static export: no roles/focus/handlers, no culling, title header and embedded legend. */
 		exportMode?: boolean;
@@ -63,6 +65,7 @@
 		showConnectors = true,
 		showWorktrees = true,
 		highlightedWorktreeId = null,
+		focusWorkItemId = null,
 		title = 'Work execution timeline',
 		exportMode = false,
 		onWorktreeSelect,
@@ -114,6 +117,9 @@
 		return m;
 	});
 	const hoverFlow = $derived(flowOf(scene.index, hoverSpanId));
+	const listFlow = $derived(
+		focusWorkItemId ? flowOf(scene.index, scene.index.workItemSpans.get(focusWorkItemId)?.[0]?.id) : undefined
+	);
 
 	// Transient pointer hover over a region/chip: highlights like a click, without selecting.
 	let hoverWtId = $state<string | null>(null);
@@ -155,8 +161,12 @@
 	const highlight = $derived(
 		computeHighlight(scene.index, selectedSpanId, selectedEventId, eventAnchor)
 	);
-	const flowSpanIds = $derived(new Set([...highlight.flow.spanIds, ...hoverFlow.spanIds]));
-	const flowWorkItems = $derived(new Set([...highlight.flow.workItemIds, ...hoverFlow.workItemIds]));
+	const flowSpanIds = $derived(
+		listFlow ? listFlow.spanIds : new Set([...highlight.flow.spanIds, ...hoverFlow.spanIds])
+	);
+	const flowWorkItems = $derived(
+		listFlow ? listFlow.workItemIds : new Set([...highlight.flow.workItemIds, ...hoverFlow.workItemIds])
+	);
 	/** bar outline colour for members of a focused flow (its steps and linked spans) */
 	function flowOutline(item: LayoutItem): string | undefined {
 		if (!flowSpanIds.has(item.id)) return undefined;
@@ -202,6 +212,7 @@
 	}
 
 	function isDimmed(item: LayoutItem): boolean {
+		if (listFlow) return !listFlow.members.has(item.id);
 		return highlight.active
 			? !highlight.lineage.has(item.id) && !highlight.session.has(item.id) && !highlight.flow.members.has(item.id)
 			: !!hlWt && item.span.worktreeId !== hlWt;
@@ -376,6 +387,8 @@
 			/>
 		{/if}
 
+		<Relationships {scene} {vp} {width} ys={rows.y} g={rows.g} {measure} {highlight} {showConnectors} {hoverSessionId} {flowSpanIds} {idPrefix} bandTop={rows.bandTop} layer="causal" />
+
 		{#if scene.workItemBands.length}
 			<WorkItemBands
 				{scene}
@@ -384,11 +397,11 @@
 				{rows}
 				{measure}
 				focused={flowWorkItems}
-				faded={highlight.active && !highlight.flow.workItemIds.size}
+				faded={!!listFlow || (highlight.active && !highlight.flow.workItemIds.size)}
 			/>
 		{/if}
 
-		<Relationships {scene} {vp} {width} ys={rows.y} g={rows.g} {measure} {highlight} {showConnectors} {hoverSessionId} {flowSpanIds} {idPrefix} />
+		<Relationships {scene} {vp} {width} ys={rows.y} g={rows.g} {measure} {highlight} {showConnectors} {hoverSessionId} {flowSpanIds} {idPrefix} layer="links" />
 
 		{#each bars as item (item.id)}
 			<SpanBar

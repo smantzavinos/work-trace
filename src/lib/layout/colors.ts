@@ -32,6 +32,13 @@ export function workItemColor(workItemIds: readonly string[], id: string): strin
 	return i < 0 ? '#586174' : WORK_PALETTE[i % WORK_PALETTE.length];
 }
 
+/** `hex` laid over white at `alpha`, as an opaque colour (so a fill can cover lines behind it). */
+export function tintOnWhite(hex: string, alpha: number): string {
+	const n = parseInt(hex.slice(1), 16);
+	const mix = (c: number) => Math.round(255 + (c - 255) * alpha).toString(16).padStart(2, '0');
+	return `#${mix((n >> 16) & 255)}${mix((n >> 8) & 255)}${mix(n & 255)}`;
+}
+
 export const TOOL_COLOR: BarColor = { fill: '#f0f2f5', text: '#3a4252', border: '#d3d8e0', neutral: true };
 export const MODEL_COLOR: BarColor = { fill: '#f1eefa', text: '#483d82', border: '#d8d0f0', neutral: true };
 const FALLBACK: BarColor = { fill: '#6b7280', text: '#ffffff', neutral: false };

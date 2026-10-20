@@ -6,6 +6,7 @@
 	import { legendGroups } from '../layout/legend.js';
 	import { stepPosition, stepsOnlyCollapse } from '../layout/selection.js';
 	import DetailsPanel from './DetailsPanel.svelte';
+	import WorkItemsPanel from './WorkItemsPanel.svelte';
 	import Legend from './Legend.svelte';
 	import TimelineSvg from './TimelineSvg.svelte';
 	import type { WorkTimelineProps } from './types.js';
@@ -35,6 +36,10 @@
 	let width = $state(0);
 	/** right-hand details panel open (collapsing it gives the chart the full width) */
 	let panelOpen = $state(true);
+	/** side panel tab (the work items tab exists only for traces with work items) */
+	let panelTab = $state<'details' | 'work'>('details');
+	/** work item hovered in the work items list: focused in the chart */
+	let listHoverWorkItem = $state<string | null>(null);
 	let scrollEl = $state<HTMLDivElement>();
 	/** chart-relative [top, bottom] px in view, for vertical culling (rAF-throttled) */
 	let visibleY = $state<readonly [number, number]>([0, 800]);
@@ -117,6 +122,7 @@
 	// item), leaving the flow of steps; toggling again restores just those (double-click still
 	// expands one step).
 	const hasWorkItems = $derived(scene.index.workItems.size > 0);
+	const tab = $derived(hasWorkItems ? panelTab : 'details');
 	const stepsOnlyIds = $derived(stepsOnlyCollapse(scene.index));
 	const stepsOnly = $derived(stepsOnlyIds.length > 0 && stepsOnlyIds.every((id) => collapsed.has(id)));
 	function toggleStepsOnly() {
@@ -386,6 +392,7 @@
 					{showConnectors}
 					{showWorktrees}
 					highlightedWorktreeId={wtId}
+					focusWorkItemId={panelOpen && tab === 'work' ? listHoverWorkItem : null}
 					onWorktreeSelect={toggleWorktree}
 					title={trace.trace.title ?? trace.trace.id}
 					onSpanSelect={selectSpan}
@@ -398,28 +405,51 @@
 			<Legend groups={legend} highlightedWorktreeId={wtId} onWorktreeSelect={toggleWorktree} />
 		</div>
 	</section>
-	<aside class="card panel" class:closed={!panelOpen} aria-label="Details">
+	<aside class="card panel" class:closed={!panelOpen} aria-label="Side panel">
 		<button
 			type="button"
 			class="panel-toggle"
 			aria-expanded={panelOpen}
 			aria-controls="at-details-panel"
 			onclick={() => (panelOpen = !panelOpen)}
-			title={panelOpen ? 'Collapse details (d)' : 'Expand details (d)'}
+			title={panelOpen ? 'Collapse panel (d)' : 'Expand panel (d)'}
 		>
 			<span class="chev" aria-hidden="true">{panelOpen ? '»' : '«'}</span>
-			<span class="lbl">{panelOpen ? 'Collapse' : 'Details'}</span>
+			<span class="lbl">{panelOpen ? 'Collapse' : tab === 'work' ? 'Work items' : 'Details'}</span>
 		</button>
 		<div class="panel-body" id="at-details-panel" hidden={!panelOpen}>
-			<DetailsPanel
-				{scene}
-				selectedSpanId={selSpan}
-				{selectedEventId}
-				{collapsed}
-				onNavigate={navigate}
-				onSelectEvent={selectEvent}
-				onToggleCollapse={toggleCollapse}
-			/>
+			{#if hasWorkItems}
+				<div class="tabs" role="tablist" aria-label="Side panel">
+					{#each [['details', 'Details'], ['work', `Work items (${scene.index.workItems.size})`]] as [id, label] (id)}
+						<button
+							type="button"
+							role="tab"
+							id="at-tab-{id}"
+							aria-selected={tab === id}
+							aria-controls="at-tabpanel"
+							onclick={() => {
+								panelTab = id as 'details' | 'work';
+								listHoverWorkItem = null;
+							}}>{label}</button
+						>
+					{/each}
+				</div>
+			{/if}
+			<div id="at-tabpanel" role={hasWorkItems ? 'tabpanel' : undefined} aria-labelledby={hasWorkItems ? `at-tab-${tab}` : undefined}>
+				{#if tab === 'work'}
+					<WorkItemsPanel {scene} selectedSpanId={selSpan} onHover={(id) => (listHoverWorkItem = id)} onNavigate={navigate} />
+				{:else}
+					<DetailsPanel
+						{scene}
+						selectedSpanId={selSpan}
+						{selectedEventId}
+						{collapsed}
+						onNavigate={navigate}
+						onSelectEvent={selectEvent}
+						onToggleCollapse={toggleCollapse}
+					/>
+				{/if}
+			</div>
 		</div>
 	</aside>
 </div>
@@ -477,6 +507,35 @@
 	}
 	.panel.closed {
 		padding: 6px;
+	}
+	.tabs {
+		display: flex;
+		gap: 2px;
+		margin: 0 0 12px;
+		border-bottom: 1px solid #e6e8ed;
+	}
+	.tabs button {
+		font: inherit;
+		font-size: 12.5px;
+		font-weight: 500;
+		color: #6b7280;
+		background: none;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		padding: 5px 9px;
+		cursor: pointer;
+	}
+	.tabs button:hover {
+		color: #1f2430;
+	}
+	.tabs button[aria-selected='true'] {
+		color: #1f2430;
+		border-bottom-color: var(--accent);
+	}
+	.tabs button:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
 	}
 	.panel.closed .panel-toggle {
 		flex-direction: column;
