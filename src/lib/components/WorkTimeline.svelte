@@ -33,6 +33,8 @@
 	/** vertical density: zooming out past "fit" shrinks rows instead of time (1 = normal) */
 	let density = $state(1);
 	let width = $state(0);
+	/** right-hand details panel open (collapsing it gives the chart the full width) */
+	let panelOpen = $state(true);
 	let scrollEl = $state<HTMLDivElement>();
 	/** chart-relative [top, bottom] px in view, for vertical culling (rAF-throttled) */
 	let visibleY = $state<readonly [number, number]>([0, 800]);
@@ -317,6 +319,7 @@
 		else if (e.key === '+' || e.key === '=') zoomCenter(1.5);
 		else if (e.key === '-') zoomCenter(1 / 1.5);
 		else if (e.key === '0') fitAll();
+		else if (e.key === 'd') panelOpen = !panelOpen;
 		else if (e.key === '9') overview();
 		else if (e.key === '[') stepNav(-1);
 		else if (e.key === ']') stepNav(1);
@@ -332,7 +335,7 @@
 </script>
 
 <div class="at-host">
-<div class="work-timeline" role="presentation" tabindex="-1" onkeydown={onKeyDown}>
+<div class="work-timeline" class:no-panel={!panelOpen} role="presentation" tabindex="-1" onkeydown={onKeyDown}>
 	<section class="card main" aria-label="Timeline">
 		<div class="toolbar" role="toolbar" aria-label="Timeline controls">
 			<span class="hint">Ctrl/⌘ + wheel or pinch to zoom (past Fit: compact rows) · Shift + wheel or drag to pan · double-click a bar to collapse · Esc clears</span>
@@ -395,17 +398,30 @@
 			<Legend groups={legend} highlightedWorktreeId={wtId} onWorktreeSelect={toggleWorktree} />
 		</div>
 	</section>
-	<div class="card panel">
-		<DetailsPanel
-			{scene}
-			selectedSpanId={selSpan}
-			{selectedEventId}
-			{collapsed}
-			onNavigate={navigate}
-			onSelectEvent={selectEvent}
-			onToggleCollapse={toggleCollapse}
-		/>
-	</div>
+	<aside class="card panel" class:closed={!panelOpen} aria-label="Details">
+		<button
+			type="button"
+			class="panel-toggle"
+			aria-expanded={panelOpen}
+			aria-controls="at-details-panel"
+			onclick={() => (panelOpen = !panelOpen)}
+			title={panelOpen ? 'Collapse details (d)' : 'Expand details (d)'}
+		>
+			<span class="chev" aria-hidden="true">{panelOpen ? '»' : '«'}</span>
+			<span class="lbl">{panelOpen ? 'Collapse' : 'Details'}</span>
+		</button>
+		<div class="panel-body" id="at-details-panel" hidden={!panelOpen}>
+			<DetailsPanel
+				{scene}
+				selectedSpanId={selSpan}
+				{selectedEventId}
+				{collapsed}
+				onNavigate={navigate}
+				onSelectEvent={selectEvent}
+				onToggleCollapse={toggleCollapse}
+			/>
+		</div>
+	</aside>
 </div>
 </div>
 
@@ -429,6 +445,48 @@
 		outline: none;
 		color: var(--ink);
 		font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	}
+	.work-timeline.no-panel {
+		grid-template-columns: minmax(0, 1fr) 2.5rem;
+	}
+	.panel-body[hidden] {
+		display: none;
+	}
+	.panel-toggle {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		margin: 0 0 12px;
+		padding: 4px 6px;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 500;
+		color: #3a4252;
+		background: #f7f8fa;
+		border: 1px solid #e1e4ea;
+		border-radius: 7px;
+		cursor: pointer;
+	}
+	.panel-toggle:hover {
+		background: #eef0f4;
+	}
+	.panel-toggle:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+	.panel.closed {
+		padding: 6px;
+	}
+	.panel.closed .panel-toggle {
+		flex-direction: column;
+		margin: 0;
+		padding: 10px 0;
+		background: none;
+		border: 0;
+	}
+	.panel.closed .lbl {
+		writing-mode: vertical-rl;
 	}
 	.card {
 		background: #fff;
@@ -530,9 +588,20 @@
 		.work-timeline {
 			grid-template-columns: minmax(0, 1fr);
 		}
+		.work-timeline.no-panel {
+			grid-template-columns: minmax(0, 1fr);
+		}
 		.panel {
 			position: static;
 			max-height: none;
+		}
+		.panel.closed .panel-toggle {
+			flex-direction: row;
+			justify-content: center;
+			padding: 4px 0;
+		}
+		.panel.closed .lbl {
+			writing-mode: horizontal-tb;
 		}
 	}
 </style>
